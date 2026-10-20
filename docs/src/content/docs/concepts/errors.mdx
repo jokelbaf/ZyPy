@@ -1,0 +1,113 @@
+---
+title: Errors
+description: Handle Zig errors and Python exceptions with try, catch, and py.Error.
+---
+
+## Error unions
+
+A Zig return type of `!T` means the function returns either a `T` or an error. Errors have names such as `error.Overflow`. Use `E!T` to specify the allowed error set `E`, or `!T` to let Zig infer it from the function body.
+
+Two keywords handle them:
+
+- `try expr` evaluates `expr`. If it's an error, the current function returns that error right away.
+- `expr catch value` replaces an error with `value`, or runs a block: `expr catch |err| { ... }`.
+
+## Zig errors become exceptions
+
+When an exported function returns an error, ZyPy raises a Python exception:
+
+| Zig error | Python exception |
+| --- | --- |
+| `error.OutOfMemory` | `MemoryError` |
+| `error.Overflow` | `OverflowError: Overflow` |
+| `error.DivisionByZero` | `ZeroDivisionError: DivisionByZero` |
+| `error.PythonError` | the Python exception that is already set (see below) |
+| any other error | `RuntimeError` with the error's name as the message |
+
+```zig
+fn parsePort(text: []const u8) !u16 {
+    return std.fmt.parseInt(u16, text, 10);
+}
+```
+
+```python
+>>> import demo
+>>> demo.parse_port(b"80")
+80
+>>> demo.parse_port(b"70000")
+Traceback (most recent call last):
+  ...
+OverflowError: Overflow
+>>> demo.parse_port(b"web")
+Traceback (most recent call last):
+  ...
+RuntimeError: InvalidCharacter
+```
+
+Checked arithmetic such as `std.math.add` and `std.math.mul` returns errors that ZyPy maps to Python exceptions. Ordinary arithmetic such as `a + b` does not return an error on overflow. It stops the process in debug and safe builds, and causes undefined behavior in fast builds.
+
+To raise a different exception for an error, map it with `.errors`, for example `.errors = .{ .InvalidCharacter = .ValueError }`. [Exceptions](/extensions/exceptions/#map-zig-errors-to-exceptions) has the details.
+
+## py.Error
+
+ZyPy functions that report Python exceptions return `py.Error!T`. `py.Error` contains `error.PythonError`, which means an exception is already set with its type, message, and traceback. Use `try` to pass it back to Python unchanged:
+
+```zig
+fn callTwice(f: py.Object) !void {
+    try f.call(void, .{});
+    try f.call(void, .{});
+}
+```
+
+```python
+>>> demo.call_twice(lambda: 1 / 0)
+Traceback (most recent call last):
+  ...
+ZeroDivisionError: division by zero
+```
+
+To raise an exception yourself, return `py.raise`. It sets the exception and returns `error.PythonError`:
+
+```zig
+if (words.len() == 0) return py.raise(.ValueError, "no words");
+```
+
+## Handle errors with catch
+
+`catch` with a `switch` turns each Zig error into the exception you want:
+
+```zig
+fn port(text: []const u8) !u16 {
+    return std.fmt.parseInt(u16, text, 10) catch |err| switch (err) {
+        error.Overflow => return py.raise(.ValueError, "port must be at most 65535"),
+        error.InvalidCharacter => return py.raise(.ValueError, "port must be a number"),
+    };
+}
+```
+
+```python
+>>> demo.port(b"99999")
+Traceback (most recent call last):
+  ...
+ValueError: port must be at most 65535
+```
+
+Catching `error.PythonError` does not clear the Python exception. Before continuing, clear it with `py.exception.clear()` or take ownership of it with `py.exception.take()`:
+
+```zig
+fn toInt(value: py.Object, fallback: i64) i64 {
+    return value.as(i64) catch {
+        py.exception.clear();
+        return fallback;
+    };
+}
+```
+
+```python
+>>> demo.to_int("x", 0)
+0
+>>> demo.to_int(5, 0)
+5
+```
+
+Returning a value while an exception is still set causes a `SystemError`, such as `returned a result with an exception set`. See [Exceptions](/extensions/exceptions/#catch-and-inspect-exceptions) for inspecting and raising exceptions again.

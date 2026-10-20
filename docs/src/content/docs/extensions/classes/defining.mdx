@@ -1,0 +1,285 @@
+---
+title: Defining classes
+description: Define Python classes in Zig with constructors, fields, methods, and properties.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A Zig struct becomes a Python class when it declares `pub const class = py.class(...)` and the module lists it in `.classes`. Each Python instance holds one value of the struct.
+
+<Tabs syncKey="lang">
+<TabItem label="Zig">
+```zig
+const Point = struct {
+    x: f64,
+    y: f64,
+
+    pub const class = py.class(.{
+        .doc = "A point in 2D.",
+        .init = py.function(init, .{ .params = &.{ "x", "y" }, .defaults = .{ .y = 0.0 } }),
+        .fields = .{ .x = .read_write, .y = .read_only },
+        .properties = .{
+            .length = py.property(length, .{ .doc = "The distance from the origin." }),
+        },
+        .methods = .{
+            .scale = py.function(scale, .{ .params = &.{"factor"}, .doc = "Scale the point in place." }),
+            .scaled = py.function(scaled, .{ .params = &.{"factor"} }),
+            .distance = distance,
+            .origin = origin,
+            .from_polar = py.function(fromPolar, .{ .params = &.{ "radius", "angle" } }),
+            .__repr__ = repr,
+        },
+    });
+
+    fn init(x: f64, y: f64) Point {
+        return .{ .x = x, .y = y };
+    }
+
+    fn length(self: *const Point) f64 {
+        return @sqrt(self.x * self.x + self.y * self.y);
+    }
+
+    fn scale(self: *Point, factor: f64) void {
+        self.x *= factor;
+        self.y *= factor;
+    }
+
+    fn scaled(self: *const Point, factor: f64) Point {
+        return .{ .x = self.x * factor, .y = self.y * factor };
+    }
+
+    fn distance(self: *const Point, other: *const Point) f64 {
+        return std.math.hypot(self.x - other.x, self.y - other.y);
+    }
+
+    fn origin() Point {
+        return .{ .x = 0, .y = 0 };
+    }
+
+    fn fromPolar(cls: py.Class(Point), radius: f64, angle: f64) !py.Instance(Point) {
+        return cls.new(.{ .x = radius * @cos(angle), .y = radius * @sin(angle) });
+    }
+
+    fn repr(self: *const Point) !py.Str {
+        var buffer: [64]u8 = undefined;
+        return py.Str.init(try std.mem.print(&buffer, "Point({d}, {d})", .{ self.x, self.y }));
+    }
+};
+```
+
+```zig
+pub const module = py.module(.{
+    .classes = .{ .Point = Point, .Counter = Counter, .Temperature = Temperature, .Handle = Handle },
+    .functions = .{ .open = open },
+});
+```
+</TabItem>
+<TabItem label="Python">
+```python
+>>> from geometry import Point
+>>> p = Point(3, 4)
+>>> p
+Point(3, 4)
+>>> p.length
+5.0
+>>> p.scale(2)
+>>> p
+Point(6, 8)
+>>> p.distance(Point(0, 0))
+10.0
+>>> Point.from_polar(2, 0)
+Point(2, 0)
+```
+</TabItem>
+</Tabs>
+
+The field name in `.classes` becomes the Python class name, so this example creates `geometry.Point`. `__repr__` controls how instances appear as text. See [Special methods](/extensions/classes/special-methods/) for it and other methods with double-underscore names.
+
+## Constructors
+
+Calling the Python class runs a constructor that returns a Zig struct value. ZyPy chooses the constructor in this order:
+
+1. `.init`, a function or `py.function(...)` with `.params` and `.defaults`;
+2. a `pub fn init` declared in the struct;
+3. otherwise, a constructor with one parameter per field, named after the field.
+
+The constructor returns `T` or `!T`. Use `.params` to give it a Python signature:
+
+```python
+>>> import inspect
+>>> inspect.signature(Point)
+<Signature (x, y=0.0)>
+>>> Point(1)
+Point(1, 0)
+>>> Point()
+Traceback (most recent call last):
+  ...
+TypeError: Point() missing 1 required positional argument: 'x'
+```
+
+The default field constructor uses any default values declared on the fields:
+
+```zig
+const Counter = struct {
+    count: i64 = 0,
+    step: i64 = 1,
+
+    pub const class = py.class(.{
+        .fields = .{ .count = .read_only, .step = .read_write },
+        .methods = .{ .tick = tick },
+    });
+
+    fn tick(self: *Counter) !i64 {
+        self.count = try std.math.add(i64, self.count, self.step);
+        return self.count;
+    }
+};
+```
+
+```python
+>>> from geometry import Counter
+>>> counter = Counter(step=5)
+>>> counter.tick()
+5
+>>> counter.tick()
+10
+>>> inspect.signature(Counter)
+<Signature (count=0, step=1)>
+```
+
+With `.init = null`, Python can't create instances. Zig code still can, for example by returning a value:
+
+```zig
+const Handle = struct {
+    id: u32,
+
+    pub const class = py.class(.{ .init = null, .fields = .{ .id = .read_only } });
+};
+
+fn open(id: u32) Handle {
+    return .{ .id = id };
+}
+```
+
+```python
+>>> from geometry import Handle, open
+>>> open(5).id
+5
+>>> Handle()
+Traceback (most recent call last):
+  ...
+TypeError: cannot create 'geometry.Handle' instances
+```
+
+Define the Zig constructor with `.init` or `pub fn init`, rather than Python methods named `__init__` or `__new__`. ZyPy uses its result to create a complete instance.
+
+## Fields
+
+List fields in `.fields` as `.read_write` or `.read_only` to expose them to Python. Unlisted fields stay hidden. ZyPy converts a field value whenever Python reads or writes it:
+
+```python
+>>> p.x = 5
+>>> p
+Point(5, 8)
+>>> p.y = 1
+Traceback (most recent call last):
+  ...
+AttributeError: attribute 'y' of 'geometry.Point' objects is not writable
+>>> p.x = "a"
+Traceback (most recent call last):
+  ...
+TypeError: must be real number, not str
+>>> p.z = 1
+Traceback (most recent call last):
+  ...
+AttributeError: 'geometry.Point' object has no attribute 'z' and no __dict__ for setting new attributes
+```
+
+Instances can't get new attributes unless the class has `.dict = true` (see [Inheritance](/extensions/classes/inheritance/#weak-references-and-__dict__)). A field that holds Python objects must be a `py.Owned(T)`, as [Instances and fields](/extensions/classes/instances/#python-objects-in-fields) explains.
+
+## Methods
+
+`.methods` maps Python names to functions or `py.function(...)`. The first parameter decides what kind of method it is:
+
+| First parameter | Kind | Called as |
+| --- | --- | --- |
+| `*T` or `*const T`, `T` or `py.Instance(T)` | instance method | `p.scale(2)` |
+| `py.Class(T)` | class method | `Point.from_polar(2, 0)` |
+| anything else, or no parameters | static method | `Point.origin()` |
+
+Use `*T` for methods that change the instance, like `scale`, and `*const T` for methods that only read it. [Instances and fields](/extensions/classes/instances/#receive-instances) describes the other receivers. `.params` names only the parameters after the receiver:
+
+```python
+>>> inspect.signature(Point.scale)
+<Signature (self, /, factor)>
+>>> p.scale(factor=0.5)
+>>> p
+Point(2.5, 4)
+```
+
+A method that returns `T` returns a new instance, as `scaled` and `origin` do.
+
+## Class methods
+
+A class method receives `py.Class(T)` first. This is the class it was called on, including a Python subclass. Use `cls.new(value)` to create an instance without running its constructor. To run the constructor, call the class with `cls.obj.call(py.Instance(Point), .{ 1.0, 2.0 })`.
+
+## Properties
+
+A property is an attribute computed by a function. List the getter in `.properties`, or wrap it in `py.property(getter, options)` to add a setter with `.set` and a docstring with `.doc`:
+
+```zig
+const Temperature = struct {
+    kelvin: f64,
+
+    pub const class = py.class(.{
+        .properties = .{
+            .celsius = py.property(celsius, .{ .set = setCelsius, .doc = "The temperature in degrees Celsius." }),
+        },
+    });
+
+    pub fn init(kelvin: f64) Temperature {
+        return .{ .kelvin = kelvin };
+    }
+
+    fn celsius(self: *const Temperature) f64 {
+        return self.kelvin - 273.15;
+    }
+
+    fn setCelsius(self: *Temperature, value: f64) !void {
+        if (value < -273.15) return py.raise(.ValueError, "below absolute zero");
+        self.kelvin = value + 273.15;
+    }
+};
+```
+
+```python
+>>> from geometry import Temperature
+>>> water = Temperature(300)
+>>> round(water.celsius, 2)
+26.85
+>>> water.celsius = 0
+>>> water.celsius
+0.0
+>>> water.celsius = -300
+Traceback (most recent call last):
+  ...
+ValueError: below absolute zero
+```
+
+The getter receives the instance. A setter receives `*T` and the new value, returning `void` or `!void`. Assigning a property without a setter raises `AttributeError`.
+
+## Options
+
+| Option | What it does |
+| --- | --- |
+| `.doc` | The class docstring. |
+| `.init` | The constructor, or `null` to forbid construction from Python. |
+| `.fields` | Struct fields that Python can read or write. |
+| `.methods` | Methods, class methods, static methods and special methods. |
+| `.properties` | Attributes computed by functions. |
+| `.subclassable` | Allow Python classes and Zig classes to inherit from this one. |
+| `.base` | A Zig class to inherit from. |
+| `.weak_references` | Allow weak references to instances. |
+| `.dict` | Give instances a `__dict__` for new attributes. |
+
+See [Inheritance](/extensions/classes/inheritance/) for the last four options. Like many built-in Python types, ZyPy classes prevent Python code from replacing their methods or class attributes. For example, `Point.x = 1` raises `TypeError`.

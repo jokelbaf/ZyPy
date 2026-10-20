@@ -1,0 +1,172 @@
+---
+title: Calling Python
+description: Import modules, call Python functions, work with attributes, and run Python code from Zig.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Zig code can import Python modules, access attributes, and call functions. The same API works in extensions and [programs that embed Python](/python/embedding/).
+
+## Import modules and read attributes
+
+`py.import(name)` imports a module and returns it, owned. `getAttr(T, name)` reads an attribute and converts it to `T`:
+
+```zig
+fn fileSize(path: py.Str) !u64 {
+    const os = try py.import("os");
+    defer os.deinit();
+
+    const stat = try os.callMethod(py.Object, "stat", .{path});
+    defer stat.deinit();
+
+    return stat.getAttr(u64, "st_size");
+}
+```
+
+```python
+>>> import bridge
+>>> bridge.file_size("/nope")
+Traceback (most recent call last):
+  ...
+FileNotFoundError: [Errno 2] No such file or directory: '/nope'
+```
+
+A dotted import such as `py.import("os.path")` returns the submodule. Use `setAttr`, `hasAttr`, and `delAttr` to write, check, and delete attributes.
+
+Attribute names use zero-terminated strings (`[:0]const u8`). String literals work directly; for a `py.Str`, use `try name.utf8()`.
+
+## Call functions and methods
+
+| Method | Calls |
+| --- | --- |
+| `obj.call(T, args)` | `obj(*args)` |
+| `obj.callKw(T, args, kwargs)` | `obj(*args, **kwargs)` |
+| `obj.callMethod(T, name, args)` | `obj.name(*args)` |
+| `obj.callMethodKw(T, name, args, kwargs)` | `obj.name(*args, **kwargs)` |
+
+`args` is a tuple of Zig values, such as `.{ 1, "x" }` or `.{}` for none, and each is converted with the usual conversions. `kwargs` is a struct literal whose field names are the keywords:
+
+```zig
+fn dumps(value: py.Object) !py.Str {
+    const json = try py.import("json");
+    defer json.deinit();
+
+    return json.callMethodKw(py.Str, "dumps", .{value}, .{ .sort_keys = true, .indent = 2 });
+}
+
+fn sortDescending(items: py.List) !void {
+    try items.obj.callMethodKw(void, "sort", .{}, .{ .reverse = true });
+}
+```
+
+```python
+>>> print(bridge.dumps({"b": 1, "a": [1, 2]}))
+{
+  "a": [
+    1,
+    2
+  ],
+  "b": 1
+}
+>>> numbers = [3, 1, 2]
+>>> bridge.sort_descending(numbers)
+>>> numbers
+[3, 2, 1]
+```
+
+Typed references, such as `py.List`, call methods through their `obj` field. A keyword that isn't a Zig identifier can be written as `.@"weird-name"`. Enum literals convert to strings, so `.{ .mode = .fast }` passes `mode="fast"`, and `null` passes `None`.
+
+Use a string literal for a fixed method name, or `py.Str` for a name determined at runtime. Other string types produce a compile error:
+
+```text
+error: expected a method name as a string literal or a py.Str, got [:0]const u8 (use py.Str.init for names from data)
+```
+
+## Typed results
+
+`T` is the type to convert the result to. `void` ignores the result, `py.Object` keeps it as it is, and any type from [Type conversions](/extensions/conversions/) converts it:
+
+```zig
+fn applyTwice(f: py.Object, value: i64) !i64 {
+    const once = try f.call(i64, .{value});
+    return f.call(i64, .{once});
+}
+```
+
+```python
+>>> bridge.apply_twice(lambda n: n * 3, 2)
+18
+>>> bridge.apply_twice(lambda n: str(n), 2)
+Traceback (most recent call last):
+  ...
+TypeError: 'str' object cannot be interpreted as an integer
+```
+
+Results own their references and views, including those inside tuples and structs. Use `deinit` for an individual object or view, and `py.deinit` to release resources throughout a returned value:
+
+```zig
+fn scheme(url: py.Str) !py.Str {
+    const parts = try url.obj.callMethod(struct { py.Str, py.Str, py.Str }, "partition", .{"://"});
+    defer py.deinit(parts);
+
+    return parts[0].newRef();
+}
+```
+
+```python
+>>> bridge.scheme("https://example.com")
+'https'
+```
+
+The `defer` releases all three strings. `newRef()` keeps the returned string alive after that cleanup (see [Ownership and borrowing](/concepts/ownership/#return-objects)). Use `py.Bytes` rather than `[]const u8` for bytes results: a slice cannot keep the Python object alive.
+
+## Run Python code
+
+| Function | What it does |
+| --- | --- |
+| `py.run(code)` | Run statements in the namespace of `__main__`, as a script would. |
+| `py.eval(T, expression)` | Evaluate an expression in `__main__` and convert its value to `T`. |
+| `py.runIn(globals, code)` | Run statements with a `py.Dict` as their namespace. |
+| `py.evalIn(T, globals, expression)` | Evaluate an expression with a `py.Dict` as its namespace. |
+
+```zig
+fn evaluate(expression: py.Str, x: f64) !f64 {
+    const globals = try py.Dict.init();
+    defer globals.deinit();
+
+    try globals.set("x", x);
+    try py.runIn(globals, "import math");
+    return py.evalIn(f64, globals, try expression.utf8());
+}
+```
+
+```python
+>>> bridge.evaluate("math.sqrt(x) + 1", 16)
+5.0
+>>> bridge.evaluate("x +", 1)
+Traceback (most recent call last):
+  ...
+  File "<string>", line 1
+    x +
+SyntaxError: invalid syntax
+```
+
+The code can add names to `globals`. Errors such as `SyntaxError` and `NameError` return `error.PythonError` with the original exception set. Zig's multiline string syntax, with `\\` at the start of each line, is useful for longer Python code.
+
+<Aside type="caution">
+In an extension, `py.run` uses the importing program's `__main__` namespace and can change its variables. Use `py.runIn` with a separate dict to keep the extension's code in its own namespace.
+</Aside>
+
+## Allocators
+
+`py.allocator` and `py.raw_allocator` are `std.mem.Allocator`s that get memory from Python's memory manager, so Python's `tracemalloc` module counts what Zig code allocates:
+
+```zig
+const output = try py.allocator.alloc(u8, input.len);
+defer py.allocator.free(output);
+```
+
+- `py.allocator` uses `PyMem_Malloc`. It needs the GIL, so don't use it while the GIL is released.
+- `py.raw_allocator` uses `PyMem_RawMalloc`, which works without the GIL.
+
+Any other Zig allocator, such as `std.heap.c_allocator`, works too, but `tracemalloc` doesn't see its memory.

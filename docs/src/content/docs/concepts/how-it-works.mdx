@@ -1,0 +1,82 @@
+---
+title: How ZyPy works
+description: Understand modules, function calls, and values passed between Zig and Python.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Modules are defined at compile time
+
+`py.module` defines a Python module from a Zig struct literal listing its functions, classes, and other contents. Zig evaluates this definition at compile time (`comptime`). ZyPy uses the declared types to generate argument checks, conversions, and the entry points CPython needs.
+
+Invalid definitions, such as a parameter type ZyPy cannot convert, produce compile errors that explain the problem.
+
+`py.exportModule(module)` exports the entry point Python calls when importing the extension. The module name comes from `zypy.addExtension` in `build.zig`, so you set it in one place.
+
+## What happens during a call
+
+<Tabs syncKey="lang">
+<TabItem label="Zig">
+```zig
+fn scale(value: f64, factor: f64) f64 {
+    return value * factor;
+}
+```
+</TabItem>
+<TabItem label="Python">
+```python
+>>> import demo
+>>> demo.scale(2.5, 4)
+10.0
+>>> demo.scale(1)
+Traceback (most recent call last):
+  ...
+TypeError: scale() takes 2 arguments (1 given)
+>>> demo.scale("a", 1)
+Traceback (most recent call last):
+  ...
+TypeError: must be real number, not str
+```
+</TabItem>
+</Tabs>
+
+When Python calls `demo.scale(2.5, 4)`, ZyPy:
+
+1. checks the number of arguments, and raises `TypeError` with Python's own message if it's wrong;
+2. converts each argument to its Zig type; here, Python's `2.5` and `4` become `f64` values; an unsupported type raises `TypeError`;
+3. calls the Zig function;
+4. raises a Python exception if the function returned an error (see [Errors](/concepts/errors/));
+5. converts the result to a Python object and returns it.
+
+On regular CPython builds, the function holds the global interpreter lock (GIL). This allows it to use Python objects, while other threads wait to run Python code. You can [release the GIL](/python/threads/) during computations that do not use Python. Free-threaded builds have [separate rules](/python/threads/#free-threaded-python).
+
+## Values and references
+
+Parameter and result types come in two kinds.
+
+**Zig values**, such as numbers, bools, optionals, structs, and enums, are converted from Python objects. Changing a copied value does not change the original Python object. See [Type conversions](/extensions/conversions/) for the supported types.
+
+**References to Python objects**, such as `py.Object`, `py.Str`, `py.List` and `py.Dict`, give the function the object the caller passed. Changes through them are visible to Python, and nothing is copied:
+
+<Tabs syncKey="lang">
+<TabItem label="Zig">
+```zig
+fn appendTwice(items: py.List, item: py.Object) !void {
+    try items.append(item);
+    try items.append(item);
+}
+```
+</TabItem>
+<TabItem label="Python">
+```python
+>>> numbers = [1]
+>>> demo.append_twice(numbers, 7)
+>>> numbers
+[1, 7, 7]
+```
+</TabItem>
+</Tabs>
+
+Python objects stay alive while they have references. A reference returned by ZyPy is either owned, which you release, or borrowed from another owner. [Ownership and borrowing](/concepts/ownership/) explains when to use `deinit`.
+
+Views provide access to an object's data. `py.Buffer(T)` reads memory directly; `py.Sequence(T)` and `py.Iterator(T)` read items from an iterable. Sequence and iterator items are converted to `T` as you read them.

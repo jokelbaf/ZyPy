@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <title>ZyPy</title>
+  <style>
+    .zig { fill: #f7a41d; }
+    .python { fill: #3776ab; }
+    @media (prefers-color-scheme: dark) {
+      .python { fill: #4b8bbe; }
+    }
+  </style>
+  <path class="zig" fill-rule="evenodd" d="M28,16 L118,16 L118,39.7 L69.7,88 L44.24,88 L98.24,34 L10,34ZM31.2,25a4,4 0 1,0 8,0a4,4 0 1,0 -8,0Z"/>
+  <path class="python" fill-rule="evenodd" d="M100,112 L10,112 L10,88.3 L58.3,40 L83.76,40 L29.76,94 L118,94ZM88.8,103a4,4 0 1,0 8,0a4,4 0 1,0 -8,0Z"/>
+</svg>

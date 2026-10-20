@@ -1,0 +1,9 @@
+.{
+    .name = .$package,
+    .version = "0.1.0",
+    .fingerprint = $fingerprint,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+$dependencies    },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}

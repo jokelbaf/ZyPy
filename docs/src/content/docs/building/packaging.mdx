@@ -1,0 +1,118 @@
+---
+title: Packaging
+description: Build wheels, source distributions, and editable installs for supported Python versions and platforms.
+---
+
+## The build backend
+
+A project's `pyproject.toml` names ZyPy as its build backend:
+
+```toml title="pyproject.toml"
+[build-system]
+requires = ["zypy>=0.1.0,<0.2"]
+build-backend = "zypy"
+```
+
+Tools such as `uv build`, `python -m build`, `pip wheel .`, and `pip install .` can then build the project. ZyPy runs `zig build`, collects the installed files, and adds the package metadata from `pyproject.toml`.
+
+In `build.zig`, use `b.standardTargetOptions` and `b.standardOptimizeOption` so the backend can select the target and build mode. Install extensions with `zypy.addExtension`. Generated projects already use this setup.
+
+## Wheels
+
+A wheel is a zip file that installs without building anything. Its name says where it works:
+
+```
+hello-0.1.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+```
+
+This is `hello` version 0.1.0 for CPython 3.14 (`cp314`) on x86_64 Linux with glibc 2.17 or newer. A wheel normally targets the interpreter, operating system, and CPU used for the build.
+
+Run `uv build` to create a source distribution and build a wheel from it, or `uv build --wheel` for only the wheel. Wheels use Zig's fast mode by default, with runtime safety checks disabled. Set `optimize` to choose another mode.
+
+### Linux
+
+ZyPy uses Zig's glibc support to build manylinux wheels without Docker. By default, it targets glibc 2.17 and uses the `manylinux_2_17` tag. This allows the wheel to run on glibc-based Linux systems with version 2.17 or newer.
+
+- `manylinux = "2_28"` in `[tool.zypy]` targets a newer glibc, which you need only if your code calls glibc functions that 2.17 lacks.
+- `manylinux = "off"` uses the build machine's glibc and a native tag such as `linux_x86_64`. These wheels have no manylinux compatibility guarantee, and PyPI rejects them.
+
+To build for another CPU, use a machine, CI runner, or emulator for that architecture. Supported architectures are x86_64, aarch64, i686, armv7l, armv8l, ppc64le, s390x, and riscv64. The minimum glibc version is 2.19 for ppc64le and 2.27 for riscv64.
+
+Python built for musl, such as Python on Alpine Linux, builds `musllinux_1_2` wheels.
+
+### macOS
+
+macOS wheel tags name the minimum supported OS version, such as `macosx_11_0_arm64`. ZyPy uses at least macOS 11.0, or a newer version required by Python or `MACOSX_DEPLOYMENT_TARGET`. Each wheel targets one CPU architecture, even when built with universal2 Python.
+
+Windows isn't supported yet (see [Limitations](/reference/limitations/)).
+
+## Several Python versions
+
+A wheel works only with the Python version it was built for, unless it uses the stable ABI (below). `zypy build` builds one wheel per Python:
+
+```sh
+uv run zypy build -i python3.13 -i python3.14 -i python3.14t
+```
+
+```
+dist/hello-0.1.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+dist/hello-0.1.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+dist/hello-0.1.0-cp314-cp314t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+```
+
+Projects made by `zypy new` have ZyPy as a development dependency, so `uv run zypy build` works in them. With uv alone, run `uv build --wheel --python 3.13` once per version.
+
+## Free-threaded Python
+
+Building with a free-threaded Python, such as 3.14t, makes a `cp314t` wheel. To run without the GIL, the module needs `.free_threaded = true`; otherwise Python enables the GIL when it imports the module. See [Free-threaded Python](/python/threads/#free-threaded-python).
+
+## The stable ABI
+
+The stable ABI (abi3) lets an extension work across CPython versions. A wheel built for it supports the selected Python version and later versions:
+
+```toml title="pyproject.toml"
+[tool.zypy]
+abi3 = "3.13"
+```
+
+```
+hello-0.1.0-cp313-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+```
+
+This wheel supports CPython 3.13 and later versions. Build it with an interpreter at least as new as the selected `abi3` version. ZyPy supports the stable ABI throughout its API. Direct `py.c` calls must also use the limited API; other calls fail to compile.
+
+Free-threaded Python requires separate wheels, such as `cp314t`; it cannot build or install these abi3 wheels. When `abi3` is set, `zypy build` builds once using the first selected interpreter.
+
+## Source distributions
+
+A source distribution (sdist) contains the source files needed to build a wheel. Installers use it when no compatible wheel is available. `uv build` writes it to `dist/`, for example as `hello-0.1.0.tar.gz`:
+
+- It contains the project's files, minus build outputs, caches and the `exclude` patterns of `[tool.zypy]`.
+- Local Zig dependencies outside the project are copied into `zig-deps/`, and manifest paths are updated to use those copies. The sdist can then build without the original directories. URL dependencies stay unchanged and are downloaded by Zig during the build.
+- With `SOURCE_DATE_EPOCH` set, the archive is reproducible: the same sources give the same bytes. Wheels are always reproducible.
+
+## Editable installs
+
+`uv sync`, `pip install -e .`, and `zypy develop` create editable installs. Python loads the extension from `zig-out/python/`, so a rebuild updates the installed package. Restart Python to load the rebuilt extension. Editable builds use debug mode unless you select another mode with `-C optimize=fast` or `zypy develop --optimize`.
+
+With [`python-source`](/extensions/modules/#packages-that-mix-python-and-zig), ZyPy links the built extensions and stubs into the Python package directory instead. Each editable build removes the files that an earlier one installed and that the new one doesn't produce, so a renamed extension doesn't stay importable.
+
+## The version
+
+To keep the version in one place, let ZyPy read it from `build.zig.zon`:
+
+```toml title="pyproject.toml"
+[project]
+name = "mixed"
+dynamic = ["version"]
+```
+
+ZyPy converts the Zig version to a Python one, so `1.2.0-rc.1` becomes `1.2.0rc1`. The version is the only field that can be dynamic.
+
+## Type stubs
+
+Wheels include the `.pyi` stubs that `zypy.addExtension` generates, and a `py.typed` marker for packages that don't have one. See [Type stubs](/building/type-stubs/).
+
+## Publish to PyPI
+
+Build a wheel for each supported platform and Python version, plus one sdist. Upload them with `uv publish` or `twine upload`. With abi3, one wheel per platform covers several Python versions. If no wheel matches, installers build from the sdist and install ZyPy and Zig as build requirements.

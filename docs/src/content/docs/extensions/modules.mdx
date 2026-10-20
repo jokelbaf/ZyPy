@@ -1,0 +1,194 @@
+---
+title: Modules
+description: Define modules, shared state, constants, and submodules, and mix Python with Zig.
+---
+
+import { FileTree, Aside } from '@astrojs/starlight/components';
+
+## Define a module
+
+`py.module` takes a struct literal. Every field is optional:
+
+| Option | What it holds |
+| --- | --- |
+| `.doc` | The module's docstring. |
+| `.functions` | Functions, as plain Zig functions or `py.function(...)` (see [Functions](/extensions/functions/)). |
+| `.classes` | Structs that declare `py.class(...)` (see [Classes](/extensions/classes/defining/)). |
+| `.enums` | Enums that declare `py.enumClass(...)` (see [Enums](/extensions/enums/#enum-classes)). |
+| `.exceptions` | Exception types made by `py.exceptionType` (see [Exceptions](/extensions/exceptions/#custom-exception-types)). |
+| `.constants` | Values that become module attributes. |
+| `.errors` | Error mappings for every function and method of the module (see [Exceptions](/extensions/exceptions/#map-zig-errors-to-exceptions)). |
+| `.state` | A struct type for data that the module's functions share. |
+| `.submodules` | Other modules made by `py.module`. |
+| `.subinterpreters` | Allow imports in subinterpreters with their own GIL (see [The GIL and threads](/python/threads/#subinterpreters)). |
+| `.free_threaded` | Run without the GIL on free-threaded Python (see [The GIL and threads](/python/threads/#free-threaded-python)). |
+
+Each field name becomes a Python name in `.functions`, `.classes`, `.enums`, `.exceptions`, `.constants`, and `.submodules`. Names must be valid Python identifiers and unique across these sections. ZyPy checks them at compile time.
+
+## Export it
+
+The root file of the extension exports one module:
+
+```zig
+comptime {
+    py.exportModule(module);
+}
+```
+
+Call `py.exportModule` from a `comptime` block in the extension's root file. It provides the entry point Python uses to import the module. The name comes from `.name` in `zypy.addExtension`, so the same definition can be built under different names.
+
+Declare the module as `pub const module` in the root file. The program that writes the [type stubs](/building/type-stubs/) looks for it under that name.
+
+## Constants
+
+`.constants` lists values that the module gets as attributes when it's imported:
+
+```zig
+.constants = .{ .__version__ = "1.2.0", .MAX_ITEMS = 1000, .LIMITS = .{ 0, 10 } },
+```
+
+```python
+>>> import inventory
+>>> inventory.__version__, inventory.MAX_ITEMS, inventory.LIMITS
+('1.2.0', 1000, (0, 10))
+```
+
+Constants are converted like any other value, so the tuple literal becomes a `tuple`. Instances of the module's classes, such as `.ORIGIN = Point{ .x = 0, .y = 0 }`, and members of its enum classes work too.
+
+## Module state
+
+Keep shared data in module state. Python may load a module in multiple interpreters, and each needs its own state. Never store Python objects in Zig globals: they belong to one interpreter and cannot be shared this way.
+
+Name a struct with `.state`, and take `*State` or `*const State` as a parameter, at any position. ZyPy fills it in, and Python doesn't see it:
+
+```zig
+const State = struct {
+    lookups: u64 = 0,
+    names: py.Owned(py.Dict),
+
+    pub fn init() !State {
+        const names = try py.Dict.init();
+        defer names.deinit();
+
+        return .{ .names = .init(names) };
+    }
+};
+
+fn register(state: *State, id: u32, name: py.Str) !void {
+    try state.names.get().set(id, name);
+}
+
+fn lookup(state: *State, id: u32) !?py.Str {
+    state.lookups += 1;
+    return state.names.get().get(py.Str, id);
+}
+
+fn lookups(state: *const State) u64 {
+    return state.lookups;
+}
+```
+
+```zig
+pub const module = py.module(.{
+    .doc = "An inventory, written in Zig.",
+    .constants = .{ .__version__ = "1.2.0", .MAX_ITEMS = 1000, .LIMITS = .{ 0, 10 } },
+    .state = State,
+    .functions = .{ .register = register, .lookup = lookup, .lookups = lookups },
+    .submodules = .{ .stats = stats },
+});
+```
+
+```python
+>>> inventory.register(1, "bolt")
+>>> inventory.lookup(1)
+'bolt'
+>>> inventory.lookup(2) is None
+True
+>>> inventory.lookups()
+2
+```
+
+ZyPy creates the state when the module is imported, after the constants and classes:
+
+- with `State.init()`, if declared, or `State.init(module)`, which gets the module object as a `py.Object`;
+- otherwise as `State{}`, which needs a default value for every field.
+
+If `init` fails, the import fails. On cleanup, ZyPy calls `State.deinit` if present, then releases `py.Owned` fields. Store Python objects in `py.Owned(T)`, just as for [class fields](/extensions/classes/instances/#python-objects-in-fields).
+
+Methods of the module's classes can take `*State` too, including static methods and class methods.
+
+## Submodules
+
+`.submodules` lists other modules, which become attributes of the module and importable by their dotted names:
+
+```zig
+const stats = py.module(.{
+    .doc = "Statistics, written in Zig.",
+    .functions = .{ .mean = mean },
+});
+```
+
+```python
+>>> import inventory.stats
+>>> from inventory.stats import mean
+>>> mean([1, 2, 3])
+2.0
+>>> inventory.stats.__name__
+'inventory.stats'
+```
+
+A submodule is built into the same extension, and can have submodules of its own. Its `.subinterpreters` and `.free_threaded` options are separate from its parent's, so set them on each module that needs them.
+
+## Packages that mix Python and Zig
+
+You can keep most of a package in Python and put selected functions in a Zig extension. Give the extension a dotted name and set `python-source` to the Python source directory:
+
+<FileTree>
+- mixed/
+  - python/
+    - mixed/
+      - \_\_init\_\_.py
+      - py.typed
+  - src/
+    - root.zig
+  - build.zig names the extension `mixed._core`
+  - build.zig.zon
+  - pyproject.toml sets `python-source = "python"`
+</FileTree>
+
+```zig title="build.zig" {6}
+const std = @import("std");
+const zypy = @import("zypy");
+
+pub fn build(b: *std.Build) void {
+    _ = zypy.addExtension(b, .{
+        .name = "mixed._core",
+        .root_source_file = b.path("src/root.zig"),
+        .target = b.standardTargetOptions(.{}),
+        .optimize = b.standardOptimizeOption(.{}),
+    });
+}
+```
+
+```toml title="pyproject.toml"
+[tool.zypy]
+python-source = "python"
+```
+
+```python title="python/mixed/__init__.py"
+import mixed._core
+
+mean = mixed._core.mean
+
+
+def variance(xs: list[float]) -> float:
+    """Get the population variance of `xs`, using the Zig `mean`."""
+    average = mean(xs)
+    return mean([(x - average) ** 2 for x in xs])
+```
+
+Wheels place the Python files and extension in the same package directory. Editable installs link the extension and stub into `python/mixed/`; add those generated links to `.gitignore`. The `_core` name follows Python's convention for private modules.
+
+<Aside type="tip">
+The repository's [mixed example](https://github.com/jokelbaf/ZyPy/tree/master/examples/mixed) contains a complete version of this package.
+</Aside>

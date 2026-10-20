@@ -1,0 +1,445 @@
+---
+title: Special methods
+description: Add operators, iteration, attribute hooks, and other Python behavior to Zig classes.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Special methods, such as `__repr__` or `__add__`, are how Python classes support built-in operations. List them in `.methods` under their Python names, like other methods. Each takes the instance first.
+
+## Text: `__repr__` and `__str__`
+
+`__repr__` returns the text that the interactive prompt and `repr()` show, and `__str__` the text of `str()` and `print()`. Both return a string, usually a `py.Str`:
+
+```zig
+const Version = struct {
+    major: u32,
+    minor: u32,
+
+    pub const class = py.class(.{
+        .methods = .{
+            .__repr__ = repr,
+            .__str__ = text,
+            .__eq__ = eql,
+            .__lt__ = lessThan,
+            .__hash__ = hash,
+        },
+    });
+
+    fn repr(self: *const Version) !py.Str {
+        var buffer: [64]u8 = undefined;
+        return py.Str.init(try std.mem.print(&buffer, "Version({d}, {d})", .{ self.major, self.minor }));
+    }
+
+    fn text(self: *const Version) !py.Str {
+        var buffer: [32]u8 = undefined;
+        return py.Str.init(try std.mem.print(&buffer, "{d}.{d}", .{ self.major, self.minor }));
+    }
+
+    fn eql(self: *const Version, other: *const Version) bool {
+        return self.major == other.major and self.minor == other.minor;
+    }
+
+    fn lessThan(self: *const Version, other: *const Version) bool {
+        return self.major < other.major or self.major == other.major and self.minor < other.minor;
+    }
+
+    fn hash(self: *const Version) u64 {
+        return @as(u64, self.major) << 32 | self.minor;
+    }
+};
+```
+
+```python
+>>> from special import Version
+>>> version = Version(1, 2)
+>>> version
+Version(1, 2)
+>>> print(version)
+1.2
+```
+
+## Comparisons and hashing
+
+Comparison methods (`__eq__`, `__ne__`, `__lt__`, `__le__`, `__gt__`, and `__ge__`) receive the other operand and usually return a `bool`. Python can try the corresponding method on the other operand. For example, `a < b` can call `b.__gt__(a)`:
+
+```python
+>>> Version(1, 2) == Version(1, 2)
+True
+>>> Version(1, 2) < Version(1, 10)
+True
+>>> Version(2, 0) > Version(1, 9)
+True
+>>> sorted([Version(1, 10), Version(1, 2)])
+[Version(1, 2), Version(1, 10)]
+>>> Version(1, 2) <= Version(1, 2)
+Traceback (most recent call last):
+  ...
+TypeError: '<=' not supported between instances of 'special.Version' and 'special.Version'
+>>> Version(1, 2) == "1.2"
+False
+```
+
+If the other operand cannot convert to the parameter type, ZyPy returns `NotImplemented` so Python can try the other operand's method. If neither supports the comparison, `==` falls back to identity and ordering raises `TypeError`. Without `__ne__`, Python uses the opposite of `__eq__`.
+
+`__hash__` returns an integer. As in Python, a class that defines `__eq__` without `__hash__` is unhashable, since equal objects must have equal hashes. A class with neither hashes by identity.
+
+```python
+>>> len({Version(1, 2), Version(1, 2)})
+1
+```
+
+## Numbers
+
+Binary operators, such as `__add__`, `__sub__`, `__mul__`, `__truediv__` and `__matmul__`, take the other operand and return the result. Their reflected forms, such as `__rmul__`, run when the left operand doesn't support the operation, as in `3 * vector`:
+
+```zig
+const Vector = struct {
+    x: i64,
+    y: i64,
+
+    pub const class = py.class(.{
+        .methods = .{
+            .__repr__ = repr,
+            .__add__ = add,
+            .__mul__ = scale,
+            .__rmul__ = scale,
+            .__neg__ = negate,
+            .__iadd__ = addInPlace,
+            .__bool__ = isNonZero,
+        },
+    });
+
+    fn repr(self: *const Vector) !py.Str {
+        var buffer: [64]u8 = undefined;
+        return py.Str.init(try std.mem.print(&buffer, "Vector({d}, {d})", .{ self.x, self.y }));
+    }
+
+    fn add(self: *const Vector, other: *const Vector) !Vector {
+        return .{ .x = try std.math.add(i64, self.x, other.x), .y = try std.math.add(i64, self.y, other.y) };
+    }
+
+    fn scale(self: *const Vector, factor: i64) !Vector {
+        return .{ .x = try std.math.mul(i64, self.x, factor), .y = try std.math.mul(i64, self.y, factor) };
+    }
+
+    fn negate(self: *const Vector) !Vector {
+        return .{ .x = try std.math.sub(i64, 0, self.x), .y = try std.math.sub(i64, 0, self.y) };
+    }
+
+    fn addInPlace(self: *Vector, other: *const Vector) !void {
+        self.* = try self.add(other);
+    }
+
+    fn isNonZero(self: *const Vector) bool {
+        return self.x != 0 or self.y != 0;
+    }
+};
+```
+
+```python
+>>> from special import Vector
+>>> Vector(1, 2) + Vector(3, 4)
+Vector(4, 6)
+>>> 3 * Vector(1, 2)
+Vector(3, 6)
+>>> -Vector(1, 2)
+Vector(-1, -2)
+>>> Vector(1, 2) + 1
+Traceback (most recent call last):
+  ...
+TypeError: unsupported operand type(s) for +: 'special.Vector' and 'int'
+>>> bool(Vector(0, 0))
+False
+```
+
+An in-place operator such as `__iadd__` can return `void` after changing the instance. Then `a += b` keeps the same object. Returning a value instead replaces the left operand:
+
+```python
+>>> a = Vector(1, 1)
+>>> b = a
+>>> a += Vector(2, 3)
+>>> a, a is b
+(Vector(3, 4), True)
+```
+
+Unary operators (`__neg__`, `__pos__`, `__abs__`, `__invert__`) and conversions (`__int__`, `__float__`, `__index__`, `__bool__`) take only the instance. `__pow__` takes the exponent and, optionally, a modulo as a `?T` parameter for three-argument `pow()`. `__divmod__` returns a tuple.
+
+## Containers
+
+Container methods provide the operations Python uses for indexing and membership. `__getitem__` receives a key, `__setitem__` receives a key and value, and `__delitem__` receives a key. `__len__` returns the length, while `__contains__` receives an item and returns `bool`:
+
+```zig
+const Stack = struct {
+    items: std.ArrayList(i64),
+
+    pub const class = py.class(.{
+        .methods = .{
+            .push = push,
+            .__len__ = len,
+            .__getitem__ = get,
+            .__setitem__ = set,
+            .__contains__ = contains,
+            .__iter__ = iterate,
+        },
+    });
+
+    pub fn init() Stack {
+        return .{ .items = .empty };
+    }
+
+    pub fn deinit(self: *Stack) void {
+        self.items.deinit(py.allocator);
+    }
+
+    fn push(self: *Stack, value: i64) !void {
+        try self.items.append(py.allocator, value);
+    }
+
+    fn len(self: *const Stack) usize {
+        return self.items.items.len;
+    }
+
+    fn get(self: *const Stack, index: usize) !i64 {
+        if (index >= self.items.items.len) return py.raise(.IndexError, "Stack index out of range");
+        return self.items.items[index];
+    }
+
+    fn set(self: *Stack, index: usize, value: i64) !void {
+        if (index >= self.items.items.len) return py.raise(.IndexError, "Stack index out of range");
+        self.items.items[index] = value;
+    }
+
+    fn contains(self: *const Stack, value: i64) bool {
+        return std.mem.indexOfScalar(i64, self.items.items, value) != null;
+    }
+
+    fn iterate(self: py.Instance(Stack)) StackIterator {
+        return .{ .stack = .init(self) };
+    }
+};
+```
+
+```python
+>>> from special import Stack
+>>> stack = Stack()
+>>> stack.push(1)
+>>> stack.push(2)
+>>> stack.push(3)
+>>> len(stack), stack[0], stack[-1], 2 in stack
+(3, 1, 3, True)
+>>> stack[0] = 10
+>>> list(stack)
+[10, 2, 3]
+>>> stack[3]
+Traceback (most recent call last):
+  ...
+IndexError: Stack index out of range
+>>> stack["a"]
+Traceback (most recent call last):
+  ...
+TypeError: sequence index must be integer, not 'str'
+```
+
+An integer key type makes the class behave as a sequence: Python adjusts negative indexes using the length, so `stack[-1]` reads the last item. Other key types, such as `py.Str`, behave as mapping keys and pass through unchanged. Use the same key type for `__getitem__`, `__setitem__`, and `__delitem__`.
+
+`__contains__` returns `false` for items that don't convert to its parameter type, as Python's containers do: `"x" in stack` is `False`. `std.ArrayList` and `deinit` are explained on [Instances and fields](/extensions/classes/instances/#zig-resources-and-deinit).
+
+## Iteration
+
+`__iter__` returns an iterator, and an iterator's `__next__` returns `?T`: the next item, or `null` at the end. A class with `__next__` and no `__iter__` is its own iterator:
+
+```zig
+const Countdown = struct {
+    left: u32,
+
+    pub const class = py.class(.{ .methods = .{ .__next__ = next } });
+
+    fn next(self: *Countdown) ?u32 {
+        if (self.left == 0) return null;
+
+        defer self.left -= 1;
+        return self.left;
+    }
+};
+```
+
+```python
+>>> from special import Countdown
+>>> list(Countdown(3))
+[3, 2, 1]
+```
+
+To iterate over a container, return an instance of an iterator class that keeps the container alive. `Stack.iterate` above returns a `StackIterator`, which holds the stack in a `py.Owned(py.Instance(Stack))` field:
+
+```zig
+const StackIterator = struct {
+    stack: py.Owned(py.Instance(Stack)),
+    index: usize = 0,
+
+    pub const class = py.class(.{ .init = null, .methods = .{ .__next__ = next } });
+
+    fn next(self: *StackIterator) ?i64 {
+        const items = self.stack.get().value().items.items;
+        if (self.index >= items.len) return null;
+
+        defer self.index += 1;
+        return items[self.index];
+    }
+};
+```
+
+List the iterator class in `.classes` too. [Instances and fields](/extensions/classes/instances/) explains `py.Instance(T)` and `py.Owned(T)`.
+
+## Calls: `__call__`
+
+`__call__` makes instances callable. It takes arguments like a method, with `.params` and `.defaults`:
+
+```zig
+const Multiplier = struct {
+    factor: f64,
+
+    pub const class = py.class(.{
+        .methods = .{ .__call__ = py.function(call, .{ .params = &.{"value"} }) },
+    });
+
+    fn call(self: *const Multiplier, value: f64) f64 {
+        return value * self.factor;
+    }
+};
+```
+
+```python
+>>> from special import Multiplier
+>>> double = Multiplier(2.5)
+>>> double(4)
+10.0
+>>> double(value=2)
+5.0
+```
+
+Other special methods only accept `.errors` in `py.function`.
+
+## Attribute hooks
+
+`__getattr__` handles attributes that normal lookup did not find. It receives the name and returns a value. A `null` result from `?T` raises `AttributeError`:
+
+```zig
+const Palette = struct {
+    pub const class = py.class(.{ .methods = .{ .__getattr__ = color } });
+
+    fn color(_: *const Palette, name: py.Str) !?u32 {
+        const text = try name.utf8();
+        if (std.mem.eql(u8, text, "red")) return 0xff0000;
+        if (std.mem.eql(u8, text, "green")) return 0x00ff00;
+        return null;
+    }
+};
+```
+
+```python
+>>> from special import Palette
+>>> hex(Palette().red)
+'0xff0000'
+>>> Palette().blue
+Traceback (most recent call last):
+  ...
+AttributeError: 'special.Palette' object has no attribute 'blue'
+```
+
+`__setattr__` receives a name and value; `__delattr__` receives a name. Return `void` after handling the operation, or return `bool` to say whether it was handled. Returning `false` lets normal assignment or deletion proceed, for example for exposed fields.
+
+`__getattribute__`, which would replace every lookup, isn't supported. Use `__getattr__`.
+
+## Descriptors
+
+A descriptor is an object stored on a class that controls attribute access. Its `__get__` receives the instance and owner class as `?py.Object` parameters. The instance is `None` when reading the attribute through the class:
+
+```zig
+const Constant = struct {
+    value: i64,
+
+    pub const class = py.class(.{ .methods = .{ .__get__ = get } });
+
+    fn get(self: *const Constant, _: ?py.Object, _: ?py.Object) i64 {
+        return self.value;
+    }
+};
+```
+
+```python
+>>> from special import Constant
+>>> class Config:
+...     answer = Constant(42)
+...
+>>> Config().answer
+42
+```
+
+`__set__` takes the instance and the new value, and `__delete__` the instance. A class with either is a data descriptor, which takes precedence over the instance's `__dict__`.
+
+## Finalizers: `__del__`
+
+`__del__` runs before Python frees the instance, including when collecting a reference cycle. Its fields are still available, so it can use Python objects:
+
+```zig
+const Watcher = struct {
+    callback: py.Owned(py.Object),
+
+    pub const class = py.class(.{ .methods = .{ .__del__ = finalize } });
+
+    fn finalize(self: *Watcher) !void {
+        try self.callback.get().call(void, .{});
+    }
+};
+```
+
+```python
+>>> from special import Watcher
+>>> watcher = Watcher(lambda: print("freed"))
+>>> del watcher
+freed
+```
+
+An exception from `__del__` cannot be returned to the code that released the instance. Python reports it on stderr as `Exception ignored in`. Use `deinit` for cleanup that only releases Zig resources (see [Instances and fields](/extensions/classes/instances/#zig-resources-and-deinit)).
+
+## Buffers
+
+`__buffer__` and `__release_buffer__` let Python read the instance's memory without copying, through the buffer protocol. See [Buffers](/extensions/buffers/#export-memory-from-a-class).
+
+## Other special methods
+
+Other dunder methods, such as `__enter__` and `__exit__`, `__reduce__` or `__format__`, are plain methods: Python calls them by name. `__class_getitem__` and `__init_subclass__` are class methods, so their functions take `py.Class(T)` first.
+
+<Aside type="caution">
+You cannot define `__init__` or `__new__` as methods; use a [constructor](/extensions/classes/defining/#constructors). `__getattribute__` and the async methods `__await__`, `__aiter__`, and `__anext__` are also unsupported and produce compile errors.
+</Aside>
+
+## Reference
+
+| Python name | The Zig function |
+| --- | --- |
+| `__repr__`, `__str__` | returns a string, such as a `py.Str` |
+| `__eq__`, `__ne__`, `__lt__`, `__le__`, `__gt__`, `__ge__` | takes the other operand, returns a `bool` or an object |
+| `__hash__` | returns an integer |
+| `__bool__` | returns `bool` |
+| `__len__` | returns an integer |
+| `__getitem__` | takes the key, returns the item |
+| `__setitem__`, `__delitem__` | take the key (and the value); return `void` |
+| `__contains__` | takes the item, returns `bool` |
+| `__iter__` | returns an iterator |
+| `__next__` | returns `?T`; `null` ends the iteration |
+| `__call__` | takes arguments like a method, with `.params` and `.defaults` |
+| `__neg__`, `__pos__`, `__abs__`, `__invert__`, `__int__`, `__float__`, `__index__` | takes only the instance |
+| `__add__`, `__sub__`, `__mul__`, `__matmul__`, `__truediv__`, `__floordiv__`, `__mod__`, `__divmod__`, `__lshift__`, `__rshift__`, `__and__`, `__or__`, `__xor__`, and their `__r...__` forms | takes the other operand |
+| `__pow__`, `__rpow__` | takes the other operand, and optionally a `?T` modulo |
+| `__iadd__`, `__isub__`, `__imul__` and the other in-place operators | takes the other operand; returns `void` to change the instance, or a value that replaces it |
+| `__getattr__` | takes the name; a `null` result from `?T` raises `AttributeError` |
+| `__setattr__`, `__delattr__` | take the name (and the value); return `void`, or `bool` to say whether they handled it |
+| `__get__` | takes the instance and the owner class, both `?py.Object` |
+| `__set__`, `__delete__` | take the instance (and the value); return `void` |
+| `__del__` | takes only the instance; returns `void` |
+| `__buffer__` | returns a slice of integers, floats or bools |
+| `__release_buffer__` | takes only the instance |
+
+Methods described as returning `void` may return `!void`. Errors from methods raise Python exceptions as usual, except for finalizers, whose errors are reported separately.

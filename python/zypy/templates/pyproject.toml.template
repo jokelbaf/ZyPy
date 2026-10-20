@@ -1,0 +1,21 @@
+[project]
+name = "$name"
+version = "0.1.0"
+requires-python = ">=3.13"
+
+[build-system]
+requires = ["$requirement"]
+build-backend = "zypy"
+
+[dependency-groups]
+# Install the zypy command for development.
+dev = ["$requirement"]
+
+[tool.uv]
+# Rebuild the editable install when these files change.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "build.zig" },
+    { file = "build.zig.zon" },
+    { file = "src/**/*.zig" },
+]$uv_sources

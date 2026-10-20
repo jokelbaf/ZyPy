@@ -1,0 +1,132 @@
+---
+title: Sequences and iterators
+description: Choose py.Sequence(T) or py.Iterator(T) to accept Python iterables.
+---
+
+`py.List` accepts lists. For tuples, ranges, generators, or other iterables, use `py.Sequence(T)` or `py.Iterator(T)`. Both convert items to `T` when read. They reject `str` to avoid treating text as individual characters.
+
+## py.Sequence(T)
+
+A sequence gives the function every item at once, with `len()` and `get(i)`:
+
+```zig
+fn mean(values: py.Sequence(f64)) !f64 {
+    if (values.len() == 0) return py.raise(.ValueError, "mean of no values");
+
+    var sum: f64 = 0;
+    for (0..values.len()) |i| sum += try values.get(i);
+    return sum / @as(f64, @floatFromInt(values.len()));
+}
+```
+
+```python
+>>> import sequences
+>>> sequences.mean([1, 2, 3])
+2.0
+>>> sequences.mean(range(5))
+2.0
+>>> sequences.mean("abc")
+Traceback (most recent call last):
+  ...
+TypeError: expected a sequence, got str
+>>> sequences.mean(5)
+Traceback (most recent call last):
+  ...
+TypeError: 'int' object is not iterable
+>>> sequences.mean([1, "x"])
+Traceback (most recent call last):
+  ...
+TypeError: must be real number, not str
+```
+
+Exact lists and tuples are reused. Other iterables are collected into a new list, which ZyPy releases after the call. Conversion happens when `get` reads an item, so an invalid item raises an exception at that point.
+
+`@floatFromInt` converts an integer to a float, here the `usize` length, and `@as(f64, ...)` says which float type to make.
+
+## py.Iterator(T)
+
+`next()` reads one item and returns `null` when iteration ends. ZyPy does not collect the input into a list, so a generator runs only as far as you read:
+
+```zig
+fn firstNegative(values: py.Iterator(i64)) !?i64 {
+    while (try values.next()) |value| {
+        if (value < 0) return value;
+    }
+    return null;
+}
+```
+
+```python
+>>> def numbers():
+...     for n in [3, -1, 4]:
+...         print("yield", n)
+...         yield n
+...
+>>> sequences.first_negative(numbers())
+yield 3
+yield -1
+-1
+>>> sequences.first_negative([1, 2]) is None
+True
+```
+
+If the iterable raises an exception while producing an item, `next()` returns `error.PythonError`, and `try` passes the exception on.
+
+## Which one to use
+
+- Use `py.Iterator(T)` when you read the items once, in order. It handles large and endless inputs, and stops reading when the function returns.
+- Use `py.Sequence(T)` when you need the length, indexed access, or several passes. Inputs other than exact lists and tuples are copied into a list.
+
+## Items that hold references
+
+Items can be any type that converts, including tuples, structs and Python objects:
+
+```zig
+fn totalScore(scores: py.Iterator(struct { py.Str, i64 })) !i64 {
+    var total: i64 = 0;
+    while (try scores.next()) |score| {
+        _, const points = score;
+        total = try std.math.add(i64, total, points);
+    }
+    return total;
+}
+```
+
+```python
+>>> sequences.total_score([("ann", 3), ("bo", 4)])
+7
+```
+
+Object references borrow from the sequence. Iterator references remain valid until the next `next()` call or iterator cleanup. Use `newRef()` to keep an object longer.
+
+## Nested sequences
+
+Items can be sequences too. An item that is a view is owned by you, so release it with `deinit`:
+
+```zig
+fn rowSums(rows: py.Sequence(py.Sequence(i64))) !py.List {
+    const sums = try py.List.init();
+    errdefer sums.deinit();
+
+    for (0..rows.len()) |i| {
+        const row = try rows.get(i);
+        defer row.deinit();
+
+        var sum: i64 = 0;
+        for (0..row.len()) |j| sum = try std.math.add(i64, sum, try row.get(j));
+        try sums.append(sum);
+    }
+    return sums;
+}
+```
+
+```python
+>>> sequences.row_sums([[1, 2], (3, 4), range(3)])
+[3, 7, 3]
+```
+
+## Return a sequence or an iterator
+
+Returning a `py.Sequence(T)` returns the underlying list or tuple, which may be the original input or a collected copy. Returning a `py.Iterator(T)` returns its Python iterator at the current position.
+
+To view an object you already hold, call `py.Sequence(T).init(obj)` or `py.Iterator(T).init(obj)`. The view is owned, so release it with `deinit`.

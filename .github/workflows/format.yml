@@ -1,0 +1,18 @@
+name: Format
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+      - run: uv run ruff format --check
+      - run: uv run python -m ziglang fmt --check build.zig build src tests examples docs/apidoc.zig docs/apidoc

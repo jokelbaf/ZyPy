@@ -1,0 +1,18 @@
+{
+  "name": "zypy-docs",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "scripts": {
+    "api": "uv run python -m ziglang run apidoc.zig -- .. src/content/docs/api src/api-links.json",
+    "dev": "pnpm run api && astro dev",
+    "build": "pnpm run api && astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.6",
+    "astro": "^7.4.1",
+    "sharp": "^0.35.5",
+    "starlight-llms-txt": "^0.12.0"
+  }
+}

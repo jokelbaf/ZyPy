@@ -1,0 +1,36 @@
+---
+title: Limitations and platforms
+description: Supported platforms, Python versions, and current limitations.
+---
+
+ZyPy is experimental. Its API may change between versions.
+
+## Platforms
+
+| Platform | Status |
+| --- | --- |
+| Linux with glibc 2.17 or newer, x86_64 and aarch64 | Supported. |
+| Linux with glibc, i686, armv7l, armv8l, ppc64le, s390x and riscv64 | Supported, but not tested on these CPUs yet. |
+| Linux with musl, such as Alpine, x86_64 and aarch64 | Supported. |
+| macOS 11 or newer, x86_64 and arm64 | Supported, but not tested on a Mac yet. |
+| Windows | Not supported. The `ziglang` package has no Windows build of Zig 0.17 yet. |
+
+## Python
+
+ZyPy requires CPython 3.13 or newer, including free-threaded builds. It uses C API features introduced in 3.13. PyPy, GraalPy, and other Python implementations are not supported.
+
+## Not supported yet
+
+- **Async special methods.** `__await__`, `__aiter__`, and `__anext__` are not supported. To use Zig from async Python, call a [`.release_gil`](/python/threads/#release-the-gil-during-a-call) function with `await asyncio.to_thread(module.function, ...)`.
+- **`__getattribute__`**, which would replace every attribute lookup. Use `__getattr__`, which runs when the usual lookup fails.
+- **`__init__` and `__new__` as methods.** Constructors replace them (see [Defining classes](/extensions/classes/defining/#constructors)).
+- **Zig base classes in other modules.** A Zig class's `.base` must be listed in the same module's `.classes`.
+- **Unions** and other types listed on [Type conversions](/extensions/conversions/#types-that-dont-convert) don't convert.
+- **Restarting embedded Python.** Start `py.Interpreter` once per process.
+- **Zig threads in subinterpreters.** `py.Gil` attaches threads to the main interpreter only.
+
+## Behavior that differs from Python
+
+- **Enum class defaults** appear as `...` in signatures, which `inspect.signature` displays as `Ellipsis`. Calls still use the declared default.
+- **Reflected operators of Python subclasses.** A Python subclass may run an inherited reflected method, such as `__radd__`, before the left operand's `__add__`. CPython uses this order for extension classes. This matters when both methods accept the operands and return different results.
+- **Names in type stubs.** A member name can hide a class name in annotations. For example, a `Point` method in `Line` hides the module's `Point` class within the `Line` stub, just as it would in Python.

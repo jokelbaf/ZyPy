@@ -1,0 +1,117 @@
+/* Zig-orange accent. Dark mode uses the logo's orange for links and buttons; light mode a darker one, for contrast. */
+:root {
+	--sl-color-accent-low: #3d2509;
+	--sl-color-accent: #e8930c;
+	--sl-color-accent-high: #f7a41d;
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent-low: #fde8c6;
+	--sl-color-accent: #b45f06;
+	--sl-color-accent-high: #5c2f02;
+}
+
+/* Landing page: the logo above the hero's text, which is centered. */
+.hero > img {
+	width: 8rem;
+}
+
+@media (min-width: 50rem) {
+	.hero > img {
+		order: 0;
+		width: 9rem;
+	}
+
+	.hero {
+		grid-template-columns: 100%;
+		padding-block: clamp(2.5rem, calc(1rem + 8vmin), 6rem) 2.5rem;
+	}
+
+	.hero .stack {
+		text-align: center;
+	}
+
+	.hero .copy {
+		align-items: center;
+	}
+
+	.hero .actions {
+		justify-content: center;
+	}
+}
+
+/* Landing page: the Zig code and the Python session side by side, the same height. */
+.sl-markdown-content .showcase {
+	display: grid;
+	grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+	gap: 1rem;
+}
+
+.sl-markdown-content .showcase > div {
+	display: flex;
+	min-width: 0;
+	margin-top: 0;
+}
+
+.sl-markdown-content .showcase .expressive-code {
+	flex: 1;
+	display: flex;
+	min-width: 0;
+}
+
+.sl-markdown-content .showcase .expressive-code figure {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.sl-markdown-content .showcase .expressive-code pre {
+	flex: 1;
+}
+
+@media (max-width: 50rem) {
+	.sl-markdown-content .showcase {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+/* API reference: the link to each declaration's source. */
+.sl-markdown-content .api-source {
+	font-size: var(--sl-text-xs);
+}
+
+.sl-markdown-content .api-source a {
+	color: var(--sl-color-gray-3);
+	text-decoration: none;
+}
+
+.sl-markdown-content .api-source a:hover {
+	color: var(--sl-color-text-accent);
+	text-decoration: underline;
+}
+
+/* Code in headings, such as `__repr__` or `py.List`: monospace, without the inline code box. */
+.sl-markdown-content :is(h2, h3, h4) code {
+	background: none;
+	padding: 0;
+	font-size: 0.9em;
+}
+
+/* API reference: smaller member headings, so each type's section reads as one block. */
+.sl-markdown-content .api-page .sl-heading-wrapper.level-h3 {
+	font-size: var(--sl-text-xl);
+}
+
+.sl-markdown-content .api-page .sl-heading-wrapper.level-h4 {
+	font-size: var(--sl-text-lg);
+}
+
+.sl-markdown-content .api-page .sl-heading-wrapper > :is(h3, h4) {
+	font-size: inherit;
+}
+
+.sl-markdown-content .api-page :is(.level-h3, .level-h4) {
+	padding-top: 1rem;
+	border-top: 1px solid var(--sl-color-hairline);
+}

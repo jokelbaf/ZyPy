@@ -1,0 +1,76 @@
+---
+title: Debugging
+description: Choose a build mode and diagnose compile errors, panics, and memory leaks.
+---
+
+## Optimize modes
+
+Zig builds code in one of four modes. ZyPy names them as Zig's build options do:
+
+| Mode | Runtime safety checks | Used by |
+| --- | --- | --- |
+| `debug` | yes | `zig build`, `zypy develop` and editable installs |
+| `safe` | yes | |
+| `fast` | no | wheels |
+| `small` | no | |
+
+Runtime safety checks catch mistakes such as integer overflow, out-of-bounds indexes, and unwrapping `null`. Debug builds keep debug information and disable optimizations, making problems easier to trace. In `fast` and `small` builds, unchecked mistakes cause undefined behavior, which can produce crashes or incorrect results.
+
+Set the wheel build mode with `optimize` in `[tool.zypy]`, or pass `-C optimize=safe` for one build. Use `zypy develop --optimize fast` to measure performance in an editable install.
+
+## Zig panics
+
+A failed safety check is a panic: Zig prints the reason and a stack trace, and stops the whole Python process. It isn't an exception that Python can catch:
+
+```zig
+fn first(data: []const u8) u8 {
+    return data[0];
+}
+```
+
+```text
+>>> debugging.first(b"")
+thread 2533201 panic: index out of bounds: index 0, len 0
+/home/you/code/debugging/src/root.zig:4:16: 0x7f14447e57db in first (root.zig)
+    return data[0];
+               ^
+```
+
+The first lines of the trace point at your code. The ones below it are ZyPy's call wrapper and Python itself.
+
+Validate values from Python before using them. Check lengths and indexes, use checked arithmetic such as `std.math.add`, and handle optionals with `orelse` or `if`. Return a Python exception for invalid input instead of allowing a panic (see [Errors](/concepts/errors/#zig-errors-become-exceptions)).
+
+## Compile errors
+
+ZyPy checks how modules, functions and classes are defined while Zig compiles them, and explains mistakes in the first line of the error, naming the function or class:
+
+```text
+src/function/Signature.zig:376:9: error: 'greet': .params names 1 parameter, but the function has 2 parameters
+```
+
+The error location points to the check inside ZyPy. Follow the `called at comptime here` notes back to your definition. The relevant guide pages explain common cases, including [unsupported conversions](/extensions/conversions/#types-that-dont-convert) and fields that need [`py.Owned`](/extensions/classes/instances/#python-objects-in-fields).
+
+When Zig reports several errors, fix the first one first: an error in a module definition can stop Zig from checking the rest of it.
+
+## Exceptions
+
+Invalid arguments raise Python exceptions, such as `TypeError: expected list, got tuple`. An unmapped Zig error raises `RuntimeError` with its name. For `RuntimeError: InvalidCharacter`, search your code for `error.InvalidCharacter` or the function that returns it.
+
+## Debuggers
+
+Debug builds keep debug information, so `gdb` and `lldb` can stop in Zig code inside a Python process:
+
+```sh
+gdb --args .venv/bin/python script.py
+```
+
+Use `std.debug.print` to print values to stderr while debugging.
+
+## Leaks
+
+Code that forgets to release a reference leaks the object. Two ways to find leaks:
+
+- Call the function in a loop and watch `sys.getrefcount(obj)` of an object it receives or returns. A count that grows means a reference that's never released.
+- `tracemalloc` measures memory that Python allocates, including `py.allocator`. Take snapshots before and after a loop of calls and compare them.
+
+Python's `-X dev` option enables extra runtime checks. `PYTHONMALLOC=debug` helps detect memory errors such as writes past an allocation or use of the wrong allocator.

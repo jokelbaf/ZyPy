@@ -1,0 +1,189 @@
+---
+title: Inheritance
+description: Inherit from Zig classes in Python or Zig, and enable weak references and instance attributes.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Subclass from Python
+
+Python classes can inherit from a Zig class with `.subclassable = true`. Without it, Python raises `TypeError: type 'polygons.Square' is not an acceptable base type`, as it does for many built-in types.
+
+```zig
+const Shape = struct {
+    name: py.Owned(py.Str),
+    sides: u32,
+
+    pub const class = py.class(.{
+        .subclassable = true,
+        .fields = .{ .name = .read_write, .sides = .read_only },
+        .methods = .{
+            .describe = describe,
+            .triangle = py.function(triangle, .{ .params = &.{"name"} }),
+        },
+    });
+
+    fn describe(self: *const Shape) !py.Str {
+        var buffer: [128]u8 = undefined;
+        const text = try std.mem.print(&buffer, "{s} with {d} sides", .{ try self.name.get().utf8(), self.sides });
+        return py.Str.init(text);
+    }
+
+    fn triangle(cls: py.Class(Shape), name: py.Str) !py.Instance(Shape) {
+        return cls.new(.{ .name = .init(name), .sides = 3 });
+    }
+};
+```
+
+```python
+>>> from polygons import Shape
+>>> class Plain(Shape):
+...     def perimeter(self, side):
+...         return self.sides * side
+...
+>>> plain = Plain("pentagon", 5)
+>>> plain.describe()
+'pentagon with 5 sides'
+>>> plain.perimeter(2)
+10
+>>> plain.color = "red"
+```
+
+Instances of Python subclasses get a `__dict__` for new attributes, as Python classes do. They pass wherever the Zig class is accepted: a parameter of type `*const Shape` accepts a `Plain` too.
+
+Python first calls `__new__` to create the Zig value, then calls the subclass's `__init__` with the same arguments. If a subclass needs different constructor arguments, override `__new__` too:
+
+```python
+>>> class Hexagon(Shape):
+...     def __new__(cls, name):
+...         return super().__new__(cls, name, 6)
+...     def __init__(self, name):
+...         self.created_by = "Python"
+...
+>>> Hexagon("hex").describe()
+'hex with 6 sides'
+```
+
+A class method receives the class it was called on. For example, `Hexagon.triangle("t")` receives `Hexagon`, and `cls.new` creates a `Hexagon` instance. This skips the constructor, including `__init__`:
+
+```python
+>>> triangle = Hexagon.triangle("tri")
+>>> type(triangle).__name__, triangle.describe()
+('Hexagon', 'tri with 3 sides')
+>>> hasattr(triangle, "created_by")
+False
+```
+
+To run the constructor of the class, `__init__` included, call it instead: `cls.obj.call(py.Instance(Shape), .{ name, 3 })`.
+
+## Weak references and `__dict__`
+
+Instances of Zig classes support neither weak references nor new attributes, unless the class asks for them:
+
+```zig
+const Tag = struct {
+    name: py.Owned(py.Str),
+
+    pub const class = py.class(.{
+        .fields = .{ .name = .read_only },
+        .weak_references = true,
+        .dict = true,
+    });
+};
+```
+
+```python
+>>> import weakref
+>>> from polygons import Tag
+>>> tag = Tag("a")
+>>> reference = weakref.ref(tag)
+>>> tag.color = "red"
+>>> tag.__dict__
+{'color': 'red'}
+>>> del tag
+>>> print(reference())
+None
+```
+
+A weak reference lets code refer to an object without keeping it alive. This is useful for caches and `weakref.WeakValueDictionary`. Set `.dict = true` to allow extra instance attributes through `__dict__`. Subclasses inherit both options. Python subclasses also get a dictionary unless they restrict it with `__slots__`.
+
+## Zig classes that inherit from Zig classes
+
+A Zig class can inherit from another with `.base`. The subclass holds the base's value in its first field, which must be declared with `align(py.base_alignment)`:
+
+```zig
+const Square = struct {
+    shape: Shape align(py.base_alignment),
+    side: f64,
+
+    pub const class = py.class(.{
+        .base = Shape,
+        .fields = .{ .side = .read_write },
+        .methods = .{ .area = area, .describe = describe },
+    });
+
+    pub fn init(name: py.Str, side: f64) Square {
+        return .{ .shape = .{ .name = .init(name), .sides = 4 }, .side = side };
+    }
+
+    fn area(self: *const Square) f64 {
+        return self.side * self.side;
+    }
+
+    fn describe(self: *const Square) !py.Str {
+        const base = try self.shape.describe();
+        defer base.deinit();
+
+        var buffer: [160]u8 = undefined;
+        return py.Str.init(try std.mem.print(&buffer, "{s} of side {d}", .{ try base.utf8(), self.side }));
+    }
+};
+
+fn sideCount(shape: *const Shape) u32 {
+    return shape.sides;
+}
+```
+
+```zig
+pub const module = py.module(.{
+    .classes = .{ .Shape = Shape, .Square = Square, .Tag = Tag },
+    .functions = .{ .side_count = sideCount },
+});
+```
+
+```python
+>>> from polygons import Square, side_count
+>>> square = Square("box", 2)
+>>> isinstance(square, Shape)
+True
+>>> square.name, square.sides, square.area()
+('box', 4, 4.0)
+>>> square.describe()
+'box with 4 sides of side 2'
+>>> Shape.describe(square)
+'box with 4 sides'
+>>> side_count(square)
+4
+```
+
+`Square` inherits `Shape`'s fields, properties, methods, and special methods. It overrides `describe` and can call the base implementation through its `shape` field. A `Square` is accepted by parameters of type `*Shape`, `*const Shape`, `Shape`, or `py.Instance(Shape)`.
+
+The rules for a base:
+
+- It must be `.subclassable`.
+- It must be in the same module's `.classes`, listed before the subclass.
+- Store the base value in the subclass's first field with `align(py.base_alignment)`. This keeps the base at the required offset on every target.
+
+ZyPy checks each rule at compile time:
+
+```text
+error: 'Sub': declare the base field as base: root.Base align(py.base_alignment), which keeps it at the start of root.Sub on every target (Zig orders fields by alignment)
+```
+
+Constructors are not inherited because they return a value of the base type. Without an `init`, the subclass's field constructor takes the base value first. A base class method that passes a base value to `cls.new` raises `TypeError` when called on a Zig subclass.
+
+If the subclass has no `deinit`, ZyPy uses the base's cleanup. If it defines `deinit`, that function must also clean up the base, for example with `self.shape.deinit()`.
+
+<Aside type="note">
+[Type stubs](/building/type-stubs/) show the hierarchy, as `class Square(Shape): ...`, so type checkers know that a `Square` is a `Shape`.
+</Aside>

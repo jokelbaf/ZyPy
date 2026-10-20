@@ -1,0 +1,96 @@
+---
+title: Type stubs
+description: Generate Python type stubs from Zig module definitions.
+---
+
+A type stub (`.pyi`) describes an extension's functions and classes using Python annotations. Editors and type checkers use it to understand the compiled module. `zypy.addExtension` generates the stub and installs it next to the extension, for example as `zig-out/python/hello.pyi`.
+
+## What a stub contains
+
+For the module on [Functions](/extensions/functions/), ZyPy writes:
+
+```python title="hello.pyi"
+import typing
+
+def add(arg0: int, arg1: int, /) -> int:
+    """Add two numbers."""
+
+def add_plain(arg0: int, arg1: int, /) -> int: ...
+
+def greet(name: str, /, greeting: str = 'Hello', *, loud: bool = False) -> str:
+    """Greet someone by name."""
+
+def clamp(arg0: float, arg1: float | None = None, arg2: float | None = None, /) -> float: ...
+
+def appended(item: int, items: list[typing.Any] = ...) -> list[typing.Any]: ...
+
+def total(*numbers: typing.Any, **options: typing.Any) -> float: ...
+
+def keywords(**kwargs: typing.Any) -> list[typing.Any]: ...
+```
+
+Parameters listed in `.params` keep their names. Others are positional-only and named `arg0`, `arg1`, and so on. Docstrings, defaults, and keyword-only parameters come from the module definition.
+
+Classes get their fields, properties, constructor, methods, class methods and static methods. Classes that aren't `.subclassable` are marked `@typing.final`, and Zig subclasses name their base:
+
+```python title="polygons.pyi"
+import typing
+
+class Shape:
+    name: str
+    @property
+    def sides(self) -> int: ...
+    def __init__(self, name: str, sides: int) -> None: ...
+    def describe(self) -> str: ...
+    @classmethod
+    def triangle(cls, name: str) -> Shape: ...
+
+@typing.final
+class Square(Shape):
+    side: float
+    def __init__(self, arg0: str, arg1: float, /) -> None: ...
+    def area(self) -> float: ...
+    @typing.override
+    def describe(self) -> str: ...
+```
+
+A module with submodules gets a directory: `inventory/__init__.pyi`, and `inventory/stats.pyi` for the submodule.
+
+## How Zig types become annotations
+
+Some types accept a wider range of arguments than they return, so parameter and result annotations can differ:
+
+| Zig | Parameter | Result |
+| --- | --- | --- |
+| integers | `int` | `int` |
+| floats | `float` | `float` |
+| `bool` | `bool` | `bool` |
+| `void` | | `None` |
+| `?T` | `T \| None` | `T \| None` |
+| tuples | `tuple[int, str]` | `tuple[int, str]` |
+| other structs | `Mapping[str, Any]` | `dict[str, Any]` |
+| enums | `Literal["red", "green", "blue"]` | the same |
+| enum classes | the class | the class |
+| `[]const u8`, `py.Bytes` | `bytes` | `bytes` |
+| string literals | | `str` |
+| other slices and arrays | | `list[T]`, or `bytes` for `u8` |
+| `py.Object` | `object` | `Any` |
+| `py.Str` | `str` | `str` |
+| `py.List`, `py.Tuple`, `py.Dict` | `list[Any]`, `tuple[Any, ...]`, `dict[Any, Any]` | the same |
+| `py.Set`, `py.FrozenSet` | `set[Any]`, `frozenset[Any]` | the same |
+| `py.Sequence(T)` | `Iterable[T]` | `Sequence[T]` |
+| `py.Iterator(T)` | `Iterable[T]` | `Iterator[T]` |
+| buffer views | `Buffer` | `Buffer` |
+| classes, `py.Instance(T)` | the class | the class |
+| `py.Class(T)` | `type[T]` | `type[T]` |
+| `py.Exception` | `BaseException` | `BaseException` |
+
+`Mapping`, `Iterable`, `Sequence`, `Iterator` and `Buffer` come from `collections.abc`, and `Any` and `Literal` from `typing`.
+
+## Packages and py.typed
+
+For packages, a `py.typed` file tells type checkers that type information is available, as described by PEP 561. ZyPy adds one to each top-level package with generated stubs if it is missing. A single-module extension such as `hello` needs only its `.pyi` file.
+
+## Turn stubs off
+
+Stub generation requires `pub const module` in the root file and a target that the build machine can run. ZyPy skips stubs when the target cannot run locally, such as during cross-compilation. Set `.stubs = false` in `zypy.addExtension` to disable them explicitly.

@@ -1,0 +1,228 @@
+---
+title: Python objects
+description: Read, create, and update Python objects using ZyPy types.
+---
+
+ZyPy object types refer directly to Python objects. Passing or returning one does not copy the object.
+
+| Type | Accepts | Create one with |
+| --- | --- | --- |
+| `py.Object` | any object | `py.Object.init(value)` |
+| `py.Str` | `str` and subclasses | `py.Str.init(text)` |
+| `py.Bytes` | `bytes` and subclasses | `py.Bytes.init(data)`, `py.Bytes.alloc(len)` |
+| `py.List` | `list` and subclasses | `py.List.init()`, `py.List.fromSlice(items)` |
+| `py.Tuple` | `tuple` and subclasses, such as named tuples | `py.Tuple.init(len)`, `py.Tuple.fromSlice(items)` |
+| `py.Dict` | `dict` and subclasses, such as `defaultdict` | `py.Dict.init()` |
+| `py.Set` | `set` and subclasses | `py.Set.init()`, `py.Set.fromSlice(items)` |
+| `py.FrozenSet` | `frozenset` and subclasses | `py.FrozenSet.init()`, `py.FrozenSet.fromSlice(items)` |
+| `py.Exception` | exceptions (see [Exceptions](/extensions/exceptions/#catch-and-inspect-exceptions)) | `py.exception.take()` |
+
+An argument of the wrong type raises `TypeError`, such as `expected list, got tuple`. Objects you create are owned, so release them with `deinit` unless you return them (see [Ownership and borrowing](/concepts/ownership/)).
+
+All object types have `deinit`, `newRef`, and `own` for wrapping a new reference from the C API. Typed references also expose the object as `obj: py.Object`. Use that field for attribute access and calls, such as `items.obj.callMethod(void, "sort", .{})`.
+
+Methods that take an index or a length use `usize`. An index past the end raises `IndexError`, as in Python, even when it's too large for Python's own index type.
+
+## py.Object
+
+`py.Object` refers to an object of any type:
+
+```zig
+fn typeName(value: py.Object) !py.Str {
+    const class = try value.getAttr(py.Object, "__class__");
+    defer class.deinit();
+
+    return class.getAttr(py.Str, "__name__");
+}
+```
+
+```python
+>>> import containers
+>>> containers.type_name(3.5)
+'float'
+```
+
+- `getAttr(T, name)` reads an attribute and converts it to `T`. `setAttr`, `hasAttr` and `delAttr` change and check attributes.
+- `call`, `callKw`, `callMethod` and `callMethodKw` call the object or one of its methods (see [Calling Python](/python/calling-python/)).
+- `as(T)` converts the object to a Zig value, such as `try value.as(i64)`, with the conversions of [Type conversions](/extensions/conversions/). References in the result are borrowed from the object.
+- `py.Object.init(value)` converts a Zig value to a new object.
+- `isNone()` checks whether the object is `None`.
+- `ptr` is the object's pointer, for the C API.
+
+## py.Str
+
+`utf8()` returns the text as UTF-8, valid while the `str` lives, and `py.Str.init(text)` creates a `str` from UTF-8 text:
+
+```zig
+fn shout(text: py.Str) !py.Str {
+    const input = try text.utf8();
+    const output = try py.allocator.alloc(u8, input.len);
+    defer py.allocator.free(output);
+
+    for (output, input) |*out, char| out.* = std.ascii.toUpper(char);
+    return py.Str.init(output);
+}
+```
+
+```python
+>>> containers.shout("héllo")
+'HéLLO'
+```
+
+`py.allocator` allocates memory from Python's allocator (see [Calling Python](/python/calling-python/#allocators)). `py.Str.init` copies the text, so the buffer can be freed before the function returns.
+
+A `str` can hold lone surrogates, which have no UTF-8 form, so `utf8()` raises `UnicodeEncodeError` for them. `py.Str.init` raises `UnicodeDecodeError` if the text isn't valid UTF-8.
+
+## py.Bytes
+
+`slice()` borrows the bytes while the object lives, and `len()` gives their length. `py.Bytes.init(data)` copies data; `py.Bytes.alloc(len)` creates writable memory for a new bytes object. Fill it before returning or storing the object, since Python bytes are immutable. See [Type conversions](/extensions/conversions/#strings-and-bytes).
+
+## py.List
+
+```zig
+fn doubled(items: py.List) !void {
+    for (0..items.len()) |i| {
+        const value = try items.get(i64, i);
+        try items.set(i, try std.math.mul(i64, value, 2));
+    }
+}
+```
+
+```python
+>>> numbers = [1, 2, 3]
+>>> containers.doubled(numbers)
+>>> numbers
+[2, 4, 6]
+```
+
+- `get(T, i)` converts item `i` to `T`. Object references in it are borrowed from the list.
+- `set(i, value)`, `append(value)` and `insert(i, value)` convert a Zig value and store it. `insert` appends when the index is past the end.
+- `pop(T, i)` removes item `i` and returns it, owned.
+- `slice(start, end)` returns a new list with the items from `start` up to `end`, and `clear()` removes every item.
+
+```zig
+fn firstAndRest(items: py.List) !struct { py.Object, py.List } {
+    const first = try items.pop(py.Object, 0);
+    errdefer first.deinit();
+
+    return .{ first, try items.slice(0, items.len()) };
+}
+```
+
+```python
+>>> containers.first_and_rest([1, 2, 3])
+(1, [2, 3])
+>>> containers.first_and_rest([])
+Traceback (most recent call last):
+  ...
+IndexError: pop from empty list
+```
+
+## py.Tuple
+
+Python tuples can't change once other code can see them. `py.Tuple.init(len)` creates a tuple filled with `None`, which you fill with `set` before returning or sharing it:
+
+```zig
+fn squares(n: usize) !py.Tuple {
+    const tuple = try py.Tuple.init(n);
+    errdefer tuple.deinit();
+
+    for (0..n) |i| try tuple.set(i, i * i);
+    return tuple;
+}
+```
+
+```python
+>>> containers.squares(4)
+(0, 1, 4, 9)
+```
+
+`set` on a tuple that something else references raises `SystemError`. Read tuples with `len()` and `get(T, i)`. For tuples of a fixed length, a Zig tuple type such as `struct { i64, py.Str }` is simpler (see [Type conversions](/extensions/conversions/#tuples)).
+
+## py.Dict
+
+Keys and values are any Zig values that convert, such as string literals, numbers or objects:
+
+```zig
+fn countWords(words: py.List) !py.Dict {
+    const counts = try py.Dict.init();
+    errdefer counts.deinit();
+
+    for (0..words.len()) |i| {
+        const word = try words.get(py.Object, i);
+        const n = try counts.get(i64, word) orelse 0;
+        try counts.set(word, n + 1);
+    }
+    return counts;
+}
+```
+
+```python
+>>> containers.count_words(["a", "b", "a"])
+{'a': 2, 'b': 1}
+>>> containers.count_words([[1]])
+Traceback (most recent call last):
+  ...
+TypeError: cannot use 'list' as a dict key (unhashable type: 'list')
+```
+
+- `get(T, key)` returns the value converted to `T`, or `null` if the key is missing. It doesn't call `__missing__`, so reading a `defaultdict` doesn't add keys.
+- `set(key, value)` inserts or replaces a value, and `contains(key)` checks for a key.
+- `remove(key)` removes a key and returns whether it was there. `pop(T, key)` removes it and returns its value, owned, or `null`. `clear()` removes every entry.
+
+`iterator(K, V)` goes through the entries, converting keys to `K` and values to `V`:
+
+```zig
+fn invert(mapping: py.Dict) !py.Dict {
+    const inverted = try py.Dict.init();
+    errdefer inverted.deinit();
+
+    var entries = mapping.iterator(py.Object, py.Object);
+    while (try entries.next()) |entry| try inverted.set(entry.value, entry.key);
+    return inverted;
+}
+```
+
+```python
+>>> containers.invert({1: "a", 2: "b"})
+{'a': 1, 'b': 2}
+```
+
+`while (try entries.next()) |entry|` processes entries until `next()` returns `null`. Do not add or remove keys while iterating; a size change raises `RuntimeError`. You may replace values.
+
+## py.Set and py.FrozenSet
+
+Both have `len`, `contains` and `iterator`. `py.Set` can also change, with `add(value)` and `discard(value)`, which returns whether the value was there. Calling them on a `py.FrozenSet` is a compile error.
+
+```zig
+fn evens(limit: u32) !py.Set {
+    const set = try py.Set.init();
+    errdefer set.deinit();
+
+    var i: u32 = 0;
+    while (i < limit) : (i += 2) try set.add(i);
+    return set;
+}
+
+fn total(numbers: py.FrozenSet) !i64 {
+    const items = try numbers.iterator(i64);
+    defer items.deinit();
+
+    var sum: i64 = 0;
+    while (try items.next()) |n| sum = try std.math.add(i64, sum, n);
+    return sum;
+}
+```
+
+```python
+>>> containers.evens(7)
+{0, 2, 4, 6}
+>>> containers.total(frozenset({1, 2, 3}))
+6
+>>> containers.total({1})
+Traceback (most recent call last):
+  ...
+TypeError: expected frozenset, got set
+```
+
+Release the iterator from `iterator(T)` with `deinit`. `py.Set` accepts sets and `py.FrozenSet` accepts frozensets. To accept either kind, or another iterable, use `py.Sequence(T)` or `py.Iterator(T)` (see [Sequences and iterators](/extensions/iterables/)).

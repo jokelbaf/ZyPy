@@ -1,0 +1,207 @@
+---
+title: Buffers
+description: Read and write Python buffers without copying, and expose memory from Zig classes.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Python objects such as `bytes`, `bytearray`, `memoryview`, `array.array`, and NumPy arrays can expose their memory through the buffer protocol. A buffer describes the item format, dimensions, and memory layout so other code can access the data directly.
+
+ZyPy's buffer views give a Zig function that memory as a slice, without copying it.
+
+## Read a buffer
+
+`py.Buffer(T)` views a buffer whose items have type `T`:
+
+```zig
+fn total(values: py.Buffer(f64)) f64 {
+    var sum: f64 = 0;
+    for (values.items()) |value| sum += value;
+    return sum;
+}
+```
+
+```python
+>>> import array
+>>> import buffers
+>>> buffers.total(array.array("d", [1, 2, 3]))
+6.0
+>>> buffers.total(array.array("f", [1]))
+Traceback (most recent call last):
+  ...
+TypeError: expected a buffer of f64, got format 'f' (item size 4)
+>>> buffers.total([1.0])
+Traceback (most recent call last):
+  ...
+TypeError: a bytes-like object is required, not 'list'
+```
+
+`T` can be `bool`, `f16`, `f32`, `f64`, or an integer type of 8, 16, 32 or 64 bits. The buffer's format must match `T`: the second call fails because `array.array("f")` holds 4-byte floats. Other item types are compile errors.
+
+- `items()` returns the items as a slice, in row-major order for buffers with several dimensions.
+- `len()` is the number of items, and `shape()` the size of each dimension.
+- `bytes()` returns the raw bytes.
+- `object()` returns the object that owns the memory.
+
+The memory remains valid until the view is released. For a function parameter, that is when the function returns. The slice from `shape()` has the same lifetime; copy it before returning, for example with `py.List.fromSlice(view.shape())`.
+
+`py.Buffer(u8)` is special: it accepts buffers of any format and reads their raw bytes, so its `items()` and `len()` count bytes.
+
+## Write a buffer
+
+`py.BufferMut(T)` views a writable buffer, and its `items()` returns a mutable slice:
+
+```zig
+fn scale(values: py.BufferMut(f64), factor: f64) void {
+    for (values.items()) |*value| value.* *= factor;
+}
+```
+
+```python
+>>> samples = array.array("d", [1, 2, 3])
+>>> buffers.scale(samples, 10)
+>>> samples
+array('d', [10.0, 20.0, 30.0])
+>>> buffers.scale(b"12345678", 1)
+Traceback (most recent call last):
+  ...
+BufferError: Object is not writable.
+```
+
+`|*value|` captures a pointer to each item, and `value.*` is the item it points to.
+
+## NumPy arrays
+
+NumPy arrays support the buffer protocol, so they work without any NumPy code in Zig. Their dtype must match the item type: `float64` for `f64`, `int32` for `i32`, `bool` for `bool`, and so on.
+
+```python
+>>> import numpy
+>>> buffers.total(numpy.array([[1.0, 2.0], [3.0, 4.0]]))
+10.0
+>>> buffers.total(numpy.arange(4))
+Traceback (most recent call last):
+  ...
+TypeError: expected a buffer of f64, got format 'l' (item size 8)
+```
+
+`numpy.arange(4)` holds 64-bit integers. Pass `numpy.arange(4.0)`, or take a `py.Buffer(i64)`.
+
+A Zig `bool` can hold only 0 or 1. Buffer views check every bool byte and raise `ValueError` for any other value.
+
+## Strided buffers
+
+`py.Buffer(T)` requires contiguous data in row-major order. A NumPy slice such as `a[::2]` skips items, and a transposed array uses a different order. Use a strided view for these layouts:
+
+```python
+>>> buffers.total(memoryview(array.array("d", range(4)))[::2])
+Traceback (most recent call last):
+  ...
+BufferError: memoryview: underlying buffer is not C-contiguous
+```
+
+`py.StridedBuffer(T)` and `py.StridedBufferMut(T)` accept non-contiguous layouts. A stride is the distance in bytes between items along one dimension; it can be negative for reversed slices. Use `iterator()` for item pointers in row-major order, or `at(indices)` for one item:
+
+```zig
+fn stridedTotal(values: py.StridedBuffer(f64)) f64 {
+    var sum: f64 = 0;
+    var items = values.iterator();
+    while (items.next()) |value| sum += value.*;
+    return sum;
+}
+
+fn cell(grid: py.StridedBuffer(f64), row: usize, column: usize) !f64 {
+    const value = try grid.at(&.{ row, column });
+    return value.*;
+}
+```
+
+```python
+>>> buffers.strided_total(numpy.arange(10.0)[::2])
+20.0
+>>> grid = numpy.arange(12.0).reshape(3, 4)
+>>> buffers.cell(grid, 1, 2)
+6.0
+>>> buffers.cell(grid, 3, 0)
+Traceback (most recent call last):
+  ...
+IndexError: buffer index out of range
+```
+
+`at` needs one index per dimension and raises `ValueError` for the wrong number of indices. `strides()` returns the distance in bytes for each dimension. Strided views also accept contiguous data.
+
+## Release the GIL during the work
+
+Buffer views stay valid while the GIL is released, so a function that only reads or writes buffers can let other Python threads run meanwhile:
+
+```zig
+.total_released = py.function(total, .{ .release_gil = true }),
+```
+
+See [The GIL and threads](/python/threads/#release-the-gil-during-a-call). Other Python code can still change the buffer's contents while the GIL is released, but it can't resize or free the memory while the view exists.
+
+## Export memory from a class
+
+A class can expose its own memory through the buffer protocol with a `__buffer__` method, which returns a slice of integers, floats or bools. Python reads and writes the slice's memory directly, without copying it. A `[]const T` slice gives a read-only buffer.
+
+Keep the memory at the same address while any view exists. `__release_buffer__` runs when a view is released. A resizable class can count active views and reject resizing until all views are released, as `bytearray` does:
+
+```zig
+const Samples = struct {
+    values: std.ArrayList(f64),
+    exports: usize = 0,
+
+    pub const class = py.class(.{
+        .doc = "Samples stored in Zig memory.",
+        .methods = .{
+            .append = append,
+            .__buffer__ = buffer,
+            .__release_buffer__ = release,
+        },
+    });
+
+    pub fn init() Samples {
+        return .{ .values = .empty };
+    }
+
+    pub fn deinit(self: *Samples) void {
+        self.values.deinit(py.allocator);
+    }
+
+    fn append(self: *Samples, value: f64) !void {
+        if (self.exports > 0) return py.raise(.BufferError, "can't append while a view of the samples exists");
+        try self.values.append(py.allocator, value);
+    }
+
+    fn buffer(self: *Samples) []f64 {
+        self.exports += 1;
+        return self.values.items;
+    }
+
+    fn release(self: *Samples) void {
+        self.exports -= 1;
+    }
+};
+```
+
+```python
+>>> samples = buffers.Samples()
+>>> samples.append(1.5)
+>>> samples.append(2.5)
+>>> view = memoryview(samples)
+>>> view.tolist()
+[1.5, 2.5]
+>>> samples.append(3.5)
+Traceback (most recent call last):
+  ...
+BufferError: can't append while a view of the samples exists
+>>> view.release()
+>>> samples.append(3.5)
+>>> buffers.total(samples)
+7.5
+>>> numpy.asarray(samples)
+array([1.5, 2.5, 3.5])
+```
+
+<Aside type="note">
+[Classes](/extensions/classes/defining/) explains `py.class`, `init` and `deinit`. The class is listed in the module's `.classes`, as `.classes = .{ .Samples = Samples }`.
+</Aside>

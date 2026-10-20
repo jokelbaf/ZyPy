@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+    paths: [pyproject.toml]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        run: |
+          version=$(grep -m1 '^version = ' pyproject.toml | cut -d '"' -f 2)
+          grep -q "\.version = \"$version\"" build.zig.zon || { echo "::error::build.zig.zon's version isn't $version"; exit 1; }
+          git ls-remote --exit-code --tags origin "v$version" > /dev/null || echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: version
+    if: needs.version.outputs.tag
+    uses: ./.github/workflows/test.yml
+
+  release:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.3.0
+      - run: uvx git-cliff --config .github/cliff.toml --unreleased --tag "$TAG" --strip all --output notes.md
+      - run: gh release create "$TAG" --notes-file notes.md --target "$GITHUB_SHA"
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+      - run: uv build
+      - run: uv publish

@@ -1,0 +1,166 @@
+---
+title: Embedding Python
+description: Run Python in a Zig program, provide Zig modules, and bundle an interpreter.
+---
+
+import { FileTree, Aside } from '@astrojs/starlight/components';
+
+Embedding lets a Zig program start Python, run scripts, and expose Zig functions and classes to them.
+
+## A program that runs Python
+
+Start with a Zig project, for example one created by `zig init`. Add the ZyPy version you want to `build.zig.zon`:
+
+```sh
+zig fetch --save=zypy https://github.com/jokelbaf/ZyPy/archive/refs/tags/v0.1.0.tar.gz
+```
+
+In `build.zig`, `zypy.addExecutable` builds a program that links libpython, Python's runtime library:
+
+```zig title="build.zig"
+const std = @import("std");
+const zypy = @import("zypy");
+
+pub fn build(b: *std.Build) void {
+    const exe = zypy.addExecutable(b, .{
+        .name = "app",
+        .root_source_file = b.path("src/main.zig"),
+        .target = b.standardTargetOptions(.{}),
+        .optimize = b.standardOptimizeOption(.{}),
+    });
+
+    const run = b.addRunArtifact(exe);
+    run.addPassthruArgs();
+    b.step("run", "Run the program").dependOn(&run.step);
+}
+```
+
+```zig title="src/main.zig"
+const std = @import("std");
+const py = @import("zypy");
+
+fn greet(name: py.Str) !py.Str {
+    var buffer: [256]u8 = undefined;
+    return py.Str.init(try std.mem.print(&buffer, "Hello, {s}!", .{try name.utf8()}));
+}
+
+const app = py.module(.{
+    .doc = "Functions that the program gives to Python.",
+    .functions = .{ .greet = greet },
+});
+
+pub fn main(init: std.process.Init) !void {
+    const interpreter = try py.Interpreter.init(.{
+        .modules = &.{.{ .name = "app", .init = app.init }},
+        .executable = py.build_python,
+        .argv = try init.minimal.args.toSlice(init.arena.allocator()),
+    });
+    defer interpreter.deinit();
+
+    run() catch |err| {
+        if (err == error.PythonError) py.c.PyErr_Print();
+        return err;
+    };
+}
+
+fn run() !void {
+    try py.run(
+        \\import sys
+        \\import app
+        \\print(app.greet("Ann"), sys.argv[1:], flush=True)
+    );
+
+    const total = try py.eval(i64, "sum(range(10))");
+    std.debug.print("sum: {d}\n", .{total});
+}
+```
+
+```sh
+$ zig build run -- one two
+Hello, Ann! ['one', 'two']
+sum: 45
+```
+
+- `py.Interpreter.init` starts Python. The thread that calls it holds the GIL afterwards, so it can use Python right away. `deinit` stops Python, after running its exit handlers and flushing its output.
+- Start the interpreter once per process. Stopping it and starting it again isn't reliable.
+- `py.run` and `py.eval` run code in the namespace of `__main__`, as [Calling Python](/python/calling-python/#run-python-code) explains. Everything else on that page works here too.
+- `py.c.PyErr_Print()` prints the traceback of a Python exception that `main` didn't handle, as Python would. `py.c` is the CPython C API (see [The C API](/building/c-api/)).
+
+The build selects Python from `-Dpython`, the active virtual environment, the project's `.venv`, or `python3`, in that order. The interpreter must provide a shared libpython. uv-managed Python builds and most system installations provide one.
+
+The executable uses the libpython location from the build machine. Other machines need a matching Python installation at that path. To distribute the interpreter too, [ship Python with the program](#ship-python-with-the-program).
+
+## Interpreter settings
+
+`py.Interpreter.init` takes a struct with these fields, all optional:
+
+| Field | What it does |
+| --- | --- |
+| `.modules` | Zig modules that Python code can import, as `.{ .name, .init }` pairs. |
+| `.executable` | The Python executable to act as. `py.build_python` is the one the program was built against. |
+| `.argv` | The arguments that Python code sees as `sys.argv`, unchanged. Without it, `sys.argv` is `['']`. |
+| `.home` | Python's home directory, as `PYTHONHOME` would set it. |
+| `.search_paths` | Directories to put at the start of `sys.path`. |
+| `.site` | Import the `site` module at start-up, which adds the site-packages directories. On by default. |
+| `.isolated` | Ignore environment variables such as `PYTHONPATH`, and the user's site-packages directory. |
+
+If Python can't start, `init` logs the reason and returns `error.InterpreterInitFailed`.
+
+## Give Python your Zig modules
+
+Define modules with `py.module`, as you would for an extension. Add each module to `.modules` with its Python name and `init` function. You do not need `py.exportModule` when embedding.
+
+## Use a virtual environment's packages
+
+Build against the virtual environment's Python and set `.executable = py.build_python`. Embedded Python can then find that environment's packages:
+
+```sh
+uv venv
+uv pip install pyproject-metadata
+zig build run
+```
+
+`zig build` finds `.venv/bin/python` by itself. With `.executable` left out, Python only sees the packages of the Python installation itself.
+
+## Ship Python with the program
+
+Set `.bundle_python = true` to include Python 3.14 from [python-build-standalone](https://github.com/astral-sh/python-build-standalone). ZyPy caches the download and installs libpython and the standard library next to your program:
+
+```zig title="build.zig"
+const exe = zypy.addExecutable(b, .{
+    .name = "embed",
+    .root_source_file = b.path("src/main.zig"),
+    .target = b.standardTargetOptions(.{}),
+    .optimize = b.standardOptimizeOption(.{}),
+    .bundle_python = b.option(bool, "bundle-python", "Ship Python with the program") orelse false,
+});
+```
+
+```sh
+zig build -Dbundle-python=true
+```
+
+<FileTree>
+- zig-out/
+  - bin/
+    - embed
+  - lib/
+    - libpython3.14.so.1.0
+    - python3.14/ the standard library
+</FileTree>
+
+Copy the whole `zig-out` directory to distribute the program with Python, about 70 MB in this example. The executable locates libpython in `../lib`, and `py.Interpreter` locates the bundled standard library. With bundling enabled, `py.build_python` is `null` and `.executable` defaults to the program itself.
+
+## Cross-compile
+
+A bundled Python also lets you build for other platforms, since the build doesn't need to run a Python for the target:
+
+```sh
+zig build -Dbundle-python=true -Dtarget=aarch64-linux-gnu
+```
+
+Bundled Python is available for `x86_64-linux-gnu`, `aarch64-linux-gnu`, `arm-linux-gnueabihf`, `powerpc64le-linux-gnu`, `riscv64-linux-gnu`, `s390x-linux-gnu`, `x86_64-linux-musl`, `aarch64-linux-musl`, `x86_64-macos`, and `aarch64-macos`. Unsupported targets produce a build error listing these options.
+
+<Aside type="note">
+For a build setup of your own, `zypy.addModule` creates the `zypy` module and `zypy.linkPython` links libpython into a module. See [build.zig](/building/build-zig/#custom-setups).
+</Aside>

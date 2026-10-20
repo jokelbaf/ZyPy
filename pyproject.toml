@@ -1,0 +1,209 @@
+[project]
+name = "zypy"
+version = "0.1.0"
+description = "Write Python extensions in Zig, and use Python from Zig"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.13"
+dependencies = [
+    "packaging>=26.3",
+    "pyproject-metadata>=0.12.1",
+    "ziglang==0.17.*; sys_platform != 'win32'",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Software Development :: Build Tools",
+]
+
+[project.scripts]
+zypy = "zypy.cli:main"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.170.5",
+    "pyrefly>=1.4.0",
+    "pytest>=9.1.1",
+    "ruff>=0.17.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "python"
+
+[tool.pytest]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = ["--import-mode=importlib"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+src = ["python", "tests", "benchmarks"]
+
+[tool.ruff.lint]
+select = [
+    "A",
+    "ANN",
+    "ARG",
+    "B",
+    "BLE",
+    "C4",
+    "D",
+    "E",
+    "ERA",
+    "F",
+    "FBT",
+    "FURB",
+    "I",
+    "ICN",
+    "ISC",
+    "N",
+    "PERF",
+    "PIE",
+    "PL",
+    "PT",
+    "PTH",
+    "RET",
+    "RSE",
+    "RUF",
+    "SIM",
+    "SLF",
+    "TID",
+    "UP",
+    "W",
+]
+ignore = ["D100", "D104"]
+
+[tool.ruff.lint.per-file-ignores]
+"examples/mixed/python/mixed/__init__.py" = ["SLF001"]
+"python/zypy/backend.py" = ["ARG001"]
+"tests/**" = ["FBT003", "PLR2004", "SLF001"]
+"tests/library/fuzzing/calls.py" = ["BLE001"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint.pylint]
+max-args = 6
+
+[tool.ruff.lint.isort]
+known-first-party = ["zypy", "helpers"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-import-conventions]
+banned-from = [
+    "argparse",
+    "ast",
+    "array",
+    "base64",
+    "builtins",
+    "collections",
+    "collections.abc",
+    "concurrent.futures",
+    "contextlib",
+    "csv",
+    "dataclasses",
+    "enum",
+    "fcntl",
+    "fnmatch",
+    "functools",
+    "gc",
+    "gzip",
+    "hashlib",
+    "importlib",
+    "importlib.util",
+    "inspect",
+    "io",
+    "itertools",
+    "json",
+    "keyword",
+    "operator",
+    "os",
+    "pathlib",
+    "platform",
+    "posixpath",
+    "re",
+    "secrets",
+    "shutil",
+    "signal",
+    "string",
+    "struct",
+    "subprocess",
+    "sys",
+    "sysconfig",
+    "tarfile",
+    "tempfile",
+    "threading",
+    "time",
+    "timeit",
+    "tomllib",
+    "tracemalloc",
+    "types",
+    "typing",
+    "unicodedata",
+    "weakref",
+    "zipfile",
+    "zlib",
+    "hypothesis",
+    "hypothesis.strategies",
+    "packaging",
+    "packaging.version",
+    "pyproject_metadata",
+    "pytest",
+    "helpers",
+    "library",
+    "library.compile_errors",
+    "library.compile_errors.cases",
+    "library.free_threading",
+    "library.free_threading.checks",
+    "library.fuzzing",
+    "library.fuzzing.buffers",
+    "library.fuzzing.calls",
+    "library.fuzzing.hostile",
+    "library.fuzzing.instances",
+    "library.fuzzing.stubs",
+    "library.fuzzing.values",
+    "library.leaks",
+    "library.leaks.failing",
+    "library.leaks.working",
+    "zypy",
+    "zypy.artifacts",
+    "zypy.artifacts.archive",
+    "zypy.artifacts.files",
+    "zypy.artifacts.metadata",
+    "zypy.artifacts.sdist",
+    "zypy.artifacts.vendor",
+    "zypy.artifacts.wheel",
+    "zypy.backend",
+    "zypy.build",
+    "zypy.cli",
+    "zypy.description",
+    "zypy.editable",
+    "zypy.errors",
+    "zypy.interpreter",
+    "zypy.new",
+    "zypy.project",
+    "zypy.settings",
+    "zypy.target",
+    "zypy.zig",
+    "zypy.zon",
+]
+
+[tool.pyrefly]
+preset = "strict"
+python-version = "3.13"
+project-includes = ["python", "tests", "benchmarks"]
+search-path = ["python", "tests"]
+strict-callable-subtyping = true

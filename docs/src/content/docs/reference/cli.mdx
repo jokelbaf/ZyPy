@@ -1,0 +1,61 @@
+---
+title: Command line
+description: Create projects, rebuild extensions, and package wheels with the zypy command.
+---
+
+The `zypy` command comes with ZyPy's Python package. Run it with `uvx zypy`, install it with `uv tool install zypy`, or use `uv run zypy` inside a generated project.
+
+```sh
+zypy --help
+zypy --version
+```
+
+When something goes wrong, `zypy` prints `error:` and the reason to stderr, and exits with status 1.
+
+## zypy new
+
+```sh
+zypy new PATH [--name NAME] [--zypy PATH_OR_URL]
+```
+
+Create a project in `PATH`, which must be empty or not exist yet. See [Your first project](/getting-started/first-project/) for the files it writes.
+
+| Option | Description |
+| --- | --- |
+| `--name NAME` | The project's name. Defaults to the directory's name. |
+| `--zypy PATH_OR_URL` | A URL or local checkout for ZyPy's Zig package. The default is the release matching the installed `zypy` version. |
+
+Project names can contain ASCII letters, digits, `.`, `_`, and `-`, and must start and end with a letter or digit. ZyPy makes the module name lowercase and replaces `-` and `.` with `_`. For example, `My-Tool.Py` becomes `my_tool_py`. Names that become Python keywords are rejected.
+
+For a URL dependency, `zypy new` runs `zig fetch` to download the package and record its hash. For a local checkout, it records relative paths in `build.zig.zon` and `[tool.uv.sources]` in `pyproject.toml`. Running `zypy` from a checkout selects that checkout by default.
+
+## zypy develop
+
+```sh
+zypy develop [--optimize MODE] [-i PYTHON]
+```
+
+Build the current project and install it in editable mode. The environment is selected from `VIRTUAL_ENV`, then `.venv`. Installation uses `uv pip install` if uv is available, or pip otherwise.
+
+| Option | Description |
+| --- | --- |
+| `--optimize MODE` | `debug`, `safe`, `fast` or `small`. Defaults to `debug`. |
+| `-i`, `--python PYTHON` | The Python of the virtual environment to install into. |
+
+## zypy build
+
+```sh
+zypy build [-i PYTHON]... [-o DIR] [--sdist] [--optimize MODE] [--manylinux VERSION]
+```
+
+Build a wheel for each Python, and optionally a source distribution, and print the path of each file.
+
+| Option | Description |
+| --- | --- |
+| `-i`, `--python PYTHON` | A Python to build a wheel for. Repeat it for several. Defaults to the virtual environment's Python, or else the Python that runs `zypy`. |
+| `-o`, `--out DIR` | The output directory. Defaults to `dist`. |
+| `--sdist` | Also build a source distribution. |
+| `--optimize MODE` | Override the `optimize` setting in `[tool.zypy]`. |
+| `--manylinux VERSION` | The oldest glibc to support, such as `2_28`, or `off`. Overrides the `manylinux` setting. |
+
+With `abi3` set, `zypy build` creates one wheel using the first selected interpreter. It supports the configured Python version and later compatible versions. See [Packaging](/building/packaging/) for details.

@@ -1,0 +1,124 @@
+---
+title: build.zig
+description: Build extensions and embedded Python programs with ZyPy's build helpers.
+---
+
+A project's `build.zig` imports ZyPy's build helpers as `zypy`. Each helper is listed with all its options in the [API reference](/api/build/).
+
+```zig
+const zypy = @import("zypy");
+```
+
+| Helper | What it does |
+| --- | --- |
+| `zypy.addExtension(b, options)` | Build an extension module and install it, with its type stub, into `python/` under the install prefix. |
+| `zypy.addExecutable(b, options)` | Build and install a program that embeds Python. |
+| `zypy.addModule(b, options)` | Create the `zypy` Zig module, for build steps of your own. |
+| `zypy.linkPython(module, python)` | Link libpython into a module. |
+| `zypy.findPython(b)` | Find the Python to build against. |
+| `zypy.bundledPython(b, target)` | Get a Python 3.14 for `target` from python-build-standalone. |
+
+## Extensions
+
+`zypy.addExtension` builds the Zig file in `.root_source_file` and installs the extension under `python/`. Python supplies the file suffix, such as `.cpython-314-x86_64-linux-gnu.so`. A dotted name like `"mypkg._core"` puts the extension in `python/mypkg/`. The helper returns a compile step where you can add C sources, libraries, and include paths.
+
+Use `.python` to choose an interpreter; the default is `zypy.findPython(b)`. Set `.abi3 = "3.13"` for the [stable ABI](/building/packaging/#the-stable-abi), or `.stubs = false` to skip [type stubs](/building/type-stubs/). `.strip` controls debug information and defaults to true outside debug mode.
+
+A `build.zig` can call `addExtension` several times, for example to build two extensions of one package. Each gets its own name and module.
+
+Do not link libpython into an extension. The interpreter that imports it already provides the C API.
+
+## Programs that embed Python
+
+`zypy.addExecutable` builds a program, links libpython, and gives its root file the `zypy` import. `.bundle_python = true` ships Python with the program instead. See [Embedding Python](/python/embedding/).
+
+## Which Python
+
+`zypy.findPython(b)` picks the Python to build against, in this order:
+
+1. `-Dpython=<executable>` on the `zig build` command line;
+2. the active virtual environment, from `VIRTUAL_ENV`;
+3. `.venv/bin/python` in the project;
+4. `python3` on `PATH`.
+
+The helper queries the interpreter and rejects anything other than CPython 3.13 or newer. The build backend passes `-Dpython` to select the interpreter running the build.
+
+`-Dabi3=3.13` builds every extension for the stable ABI, unless its `.abi3` option says otherwise. The build backend passes it when `pyproject.toml` sets `abi3`.
+
+## Build extensions for another target
+
+`zypy.bundledPython(b, target)` provides the headers of a Python for another platform, so an extension can be cross-compiled:
+
+```zig title="build.zig"
+const std = @import("std");
+const zypy = @import("zypy");
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    _ = zypy.addExtension(b, .{
+        .name = "hello",
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = b.standardOptimizeOption(.{}),
+        .python = zypy.bundledPython(b, target),
+    });
+}
+```
+
+```sh
+zig build -Dtarget=aarch64-macos -Doptimize=fast
+```
+
+This creates `zig-out/python/hello.cpython-314-darwin.so` for Python 3.14 on Apple silicon. Type stubs are skipped if the build machine cannot run the target. To package a wheel, build on its target platform (see [Packaging](/building/packaging/#wheels)).
+
+## Custom setups
+
+For a custom build step, use `zypy.addModule` to add the `zypy` import and `zypy.linkPython` to link libpython. This example uses them in Zig unit tests that start Python:
+
+```zig title="build.zig"
+const std = @import("std");
+const zypy = @import("zypy");
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+    const python = zypy.findPython(b);
+
+    _ = zypy.addExtension(b, .{
+        .name = "hello",
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .python = python,
+    });
+
+    const tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tests.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{.{
+                .name = "zypy",
+                .module = zypy.addModule(b, .{ .target = target, .optimize = optimize, .python = python }),
+            }},
+        }),
+    });
+    zypy.linkPython(tests.root_module, python);
+    b.step("test", "Run the tests").dependOn(&b.addRunArtifact(tests).step);
+}
+```
+
+```zig title="src/tests.zig"
+const std = @import("std");
+const py = @import("zypy");
+
+test "Python adds numbers" {
+    const interpreter = try py.Interpreter.init(.{ .executable = py.build_python });
+    defer interpreter.deinit();
+
+    try std.testing.expectEqual(3, try py.eval(i64, "1 + 2"));
+}
+```
+
+Run the tests with `zig build test`. `zypy.linkPython` requires a shared libpython. `zypy.addModule` also accepts `.extension` to name an exported module and `.abi3` to select the stable ABI.

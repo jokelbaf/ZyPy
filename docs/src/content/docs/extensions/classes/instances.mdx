@@ -1,0 +1,189 @@
+---
+title: Instances and fields
+description: Pass and return instances, store Python references, and release Zig resources.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Each Python instance of a Zig class holds one struct value. Choose a parameter type based on whether you need to read it, change it, copy it, or work with the Python object itself.
+
+## Receive instances
+
+| Parameter | The function gets | Use it to |
+| --- | --- | --- |
+| `*T` | a pointer into the instance | change the instance |
+| `*const T` | a read-only pointer into the instance | read the instance |
+| `T` | a copy of the value | work on a copy, without changing the instance |
+| `py.Instance(T)` | the instance itself, as an object reference | return or store the instance, or reach its value with `value()` |
+
+These types work as method receivers and other function parameters. They accept instances of `T` and its subclasses; other objects raise `TypeError`. Pointers remain valid until the function returns.
+
+```zig
+fn midpoint(a: *const Point, b: *const Point) Point {
+    return .{ .x = (a.x + b.x) / 2, .y = (a.y + b.y) / 2 };
+}
+
+fn moveRight(point: *Point, distance: f64) void {
+    point.x += distance;
+}
+
+fn movedRight(point: Point, distance: f64) Point {
+    var moved = point;
+    moved.x += distance;
+    return moved;
+}
+
+fn shifted(point: py.Instance(Point), distance: f64) py.Instance(Point) {
+    point.value().x += distance;
+    return point;
+}
+```
+
+```python
+>>> from shapes import Point, midpoint, move_right, moved_right, shifted
+>>> midpoint(Point(0, 0), Point(2, 4))
+Point(1, 2)
+>>> midpoint(Point(0, 0), 5)
+Traceback (most recent call last):
+  ...
+TypeError: expected shapes.Point, got int
+>>> p = Point(1, 2)
+>>> move_right(p, 1)
+>>> p
+Point(2, 2)
+>>> moved_right(p, 1)
+Point(3, 2)
+>>> p
+Point(2, 2)
+>>> shifted(p, 1) is p
+True
+```
+
+`move_right` changed `p` through the pointer. `moved_right` changed a copy and returned it as a new instance. `shifted` returned `p` itself. Optional parameters, such as `?*const Point`, also accept `None`.
+
+## Return instances
+
+- Return `T` to create a new instance that holds the value.
+- Return `py.Instance(T)` to return an existing instance, such as the receiver.
+- `py.Instance(T).init(value)` creates an instance from Zig code, without running the constructor. The reference is owned.
+- Storing a value in a container, as in `list.append(point)`, creates a new instance with a copy of the value:
+
+```zig
+fn corners(width: f64, height: f64) !py.List {
+    const list = try py.List.init();
+    errdefer list.deinit();
+
+    try list.append(Point{ .x = 0, .y = 0 });
+    try list.append(Point{ .x = width, .y = height });
+    return list;
+}
+```
+
+```python
+>>> from shapes import corners
+>>> corners(2, 3)
+[Point(0, 0), Point(2, 3)]
+```
+
+Pointers can't be returned, because nothing would keep the instance alive. ZyPy reports a compile error that suggests returning `T` or `py.Instance(T)`.
+
+## Python objects in fields
+
+Store Python objects in `py.Owned(T)` fields, such as `py.Owned(py.Str)` or `py.Owned(?py.Object)`. These fields keep objects alive and make the references visible to Python's garbage collector. Plain `py.Object` fields produce a compile error:
+
+```text
+error: 'Holder': field 'obj' holds Python objects, so declare it as py.Owned(py.Object), which keeps a reference for root.Holder (read it with get, change it with set)
+```
+
+`get()` borrows the stored value. `init(value)` and `set(value)` take their own references, leaving yours unchanged. You can use these fields with `.fields`, default values, and the field constructor:
+
+```zig
+const Node = struct {
+    value: py.Owned(py.Object),
+    next: py.Owned(?py.Instance(Node)) = .init(null),
+
+    pub const class = py.class(.{
+        .fields = .{ .value = .read_write, .next = .read_write },
+        .methods = .{ .last = last, .copy = copy },
+    });
+
+    fn last(self: py.Instance(Node)) py.Instance(Node) {
+        var node = self;
+        while (node.value().next.get()) |next| node = next;
+        return node;
+    }
+
+    fn copy(self: Node) Node {
+        return self;
+    }
+};
+```
+
+```python
+>>> from shapes import Node
+>>> first = Node("first")
+>>> second = Node("second", first)
+>>> second.last().value
+'first'
+>>> second.next = 5
+Traceback (most recent call last):
+  ...
+TypeError: expected shapes.Node, got int
+```
+
+To keep another instance in a field, use `py.Owned(py.Instance(T))`. A pointer field, such as `*Node`, is a compile error, because a pointer can't keep the instance alive.
+
+ZyPy classes support Python's garbage collector, including cycles such as two nodes whose `next` fields refer to each other.
+
+### Copies of values with references
+
+Copying with `self.*` also copies its ownership flags. Returning that copy can cause two instances to release the same references. Instead, take the receiver by value (`T`), as in `copy` above, so ZyPy can give the copy its own references.
+
+## Zig resources and deinit
+
+A class can own Zig resources, such as memory. Declare `pub fn deinit(self: *T) void` to release them. It runs when Python frees the instance:
+
+```zig
+const Histogram = struct {
+    counts: []u32,
+
+    pub const class = py.class(.{ .methods = .{ .add = add, .count = count } });
+
+    pub fn init(bins: usize) !Histogram {
+        const counts = try py.allocator.alloc(u32, bins);
+        @memset(counts, 0);
+        return .{ .counts = counts };
+    }
+
+    pub fn deinit(self: *Histogram) void {
+        py.allocator.free(self.counts);
+    }
+
+    fn add(self: *Histogram, bin: usize) !void {
+        if (bin >= self.counts.len) return py.raise(.IndexError, "no such bin");
+        self.counts[bin] +%= 1;
+    }
+
+    fn count(self: *const Histogram, bin: usize) !u32 {
+        if (bin >= self.counts.len) return py.raise(.IndexError, "no such bin");
+        return self.counts[bin];
+    }
+};
+```
+
+```python
+>>> from shapes import Histogram
+>>> histogram = Histogram(3)
+>>> histogram.add(1)
+>>> histogram.add(1)
+>>> histogram.count(1)
+2
+```
+
+`+%=` adds with wraparound, so a count can't overflow and stop the process. ZyPy releases the `py.Owned` fields itself, after `deinit`.
+
+ZyPy cannot safely copy a class value that owns resources through `deinit`. Use `*T`, `*const T`, or `py.Instance(T)` instead of passing or storing that class by value.
+
+<Aside type="note">
+The garbage collector may clear `py.Owned` fields before calling `deinit`. Use `deinit` for Zig resources. Put cleanup that needs Python objects in `__del__` (see [Special methods](/extensions/classes/special-methods/#finalizers-__del__)).
+</Aside>

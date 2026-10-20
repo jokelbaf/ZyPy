@@ -1,0 +1,95 @@
+---
+title: Enums
+description: Use Zig enums as Python strings or enum.Enum classes.
+---
+
+ZyPy can expose a Zig enum as strings containing its tag names, or as a Python `enum.Enum` class.
+
+## Enums as strings
+
+By default, an enum converts to a `str` with the tag's name. Arguments accept a `str`, or a member of any `enum.Enum` class, matched by its name:
+
+```zig
+const Color = enum { red, green, blue };
+
+fn next(color: Color) Color {
+    return switch (color) {
+        .red => .green,
+        .green => .blue,
+        .blue => .red,
+    };
+}
+```
+
+```zig
+.next = py.function(next, .{ .params = &.{"color"}, .defaults = .{ .color = .blue } }),
+```
+
+```python
+>>> import levels
+>>> levels.next("red")
+'green'
+>>> levels.next()
+'red'
+>>> import inspect
+>>> inspect.signature(levels.next)
+<Signature (color='blue')>
+```
+
+A default is an enum literal such as `.blue`. Unknown names raise `ValueError: expected one of 'red', 'green', 'blue', got 'purple'`. [Type stubs](/building/type-stubs/) annotate such parameters as `typing.Literal["red", "green", "blue"]`, so type checkers catch typos.
+
+Use strings for a simple interface. Use `py.enumClass` when Python code should distinguish enum members from ordinary strings.
+
+## Enum classes
+
+An enum that declares `pub const class = py.enumClass(.{ ... })` becomes an `enum.Enum` class. List it in the module's `.enums`:
+
+```zig
+const Level = enum(u8) {
+    low = 1,
+    medium = 5,
+    high = 10,
+
+    pub const class = py.enumClass(.{ .doc = "How loud." });
+};
+
+fn louder(level: Level) Level {
+    return switch (level) {
+        .low => .medium,
+        .medium, .high => .high,
+    };
+}
+```
+
+```zig
+pub const module = py.module(.{
+    .enums = .{ .Level = Level },
+    .constants = .{ .DEFAULT_LEVEL = Level.medium },
+    .functions = .{
+        .next = py.function(next, .{ .params = &.{"color"}, .defaults = .{ .color = .blue } }),
+        .louder = py.function(louder, .{ .params = &.{"level"}, .defaults = .{ .level = .low } }),
+    },
+});
+```
+
+```python
+>>> from levels import Level
+>>> list(Level)
+[<Level.low: 1>, <Level.medium: 5>, <Level.high: 10>]
+>>> levels.louder(Level.low)
+<Level.medium: 5>
+>>> levels.louder(Level.low) is Level.medium
+True
+>>> levels.DEFAULT_LEVEL
+<Level.medium: 5>
+>>> levels.louder("low")
+Traceback (most recent call last):
+  ...
+TypeError: expected levels.Level, got str
+```
+
+The result is a regular `enum.Enum` class supporting `Level(5)`, `Level["high"]`, and `isinstance(member, enum.Enum)`. Members keep the Zig tags' integer values. Tags without explicit values start at 0. Set `.doc` to add a docstring.
+
+An enum class parameter accepts only members of that class. Results return members too. Defaults such as `.level = .low` work, but appear as `...` in signatures because `inspect` cannot evaluate enum members. `inspect.signature` displays this as `level=Ellipsis`.
+
+Tag names must be ASCII Python identifiers. Python keywords, `mro`, and names reserved by `enum` are rejected, including names starting and ending with `_`, or starting with `__`. The name `class` is also reserved for the ZyPy declaration. Invalid names produce compile errors.

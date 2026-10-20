@@ -1,0 +1,72 @@
+---
+title: Introduction
+description: What ZyPy is, what you can build with it, and where to start.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+ZyPy lets you write Python extension modules in Zig and run Python from Zig programs.
+
+An extension module is a compiled library that Python can import. Packages such as NumPy use extensions to run native code. ZyPy lets you define that code with Zig functions and structs while it handles the CPython interface.
+
+<Tabs syncKey="lang">
+<TabItem label="Zig">
+```zig title="src/root.zig"
+const std = @import("std");
+const py = @import("zypy");
+
+fn add(a: i64, b: i64) !i64 {
+    return std.math.add(i64, a, b);
+}
+
+pub const module = py.module(.{
+    .doc = "hello, written in Zig.",
+    .functions = .{
+        .add = py.function(add, .{ .doc = "Add two numbers." }),
+    },
+});
+
+comptime {
+    py.exportModule(module);
+}
+```
+</TabItem>
+<TabItem label="Python">
+```python
+>>> import hello
+>>> hello.add(1, 2)
+3
+>>> hello.add(2**63 - 1, 1)
+Traceback (most recent call last):
+  ...
+OverflowError: Overflow
+```
+</TabItem>
+</Tabs>
+
+ZyPy converts the Python integers to `i64`, calls `add`, and converts the result back to Python. The second sum is too large for `i64`, so `std.math.add` returns an error and ZyPy raises a Python exception.
+
+## The parts of ZyPy
+
+- **The Zig library**, imported as `py`. It converts values between Zig and Python, defines Python functions, classes and modules, and gives Zig code access to Python objects.
+- **A Python build backend**, selected in `pyproject.toml`. pip, uv, and other tools use it to build and install your project.
+- **The `zypy` command**, which creates projects and builds them while you work.
+
+If you know [PyO3](https://pyo3.rs) and [maturin](https://www.maturin.rs) from Rust, ZyPy plays both roles for Zig: the library is like PyO3, and the build backend and `zypy` command are like maturin.
+
+## What you can build
+
+- Python modules written in Zig: functions, classes, enums, exceptions and submodules, with signatures and type stubs that editors and type checkers understand.
+- Python packages that mix Python code with a Zig extension.
+- Zig programs that embed Python, run Python code and let it import Zig modules.
+- Wheels for Linux and macOS, including manylinux wheels built without Docker.
+
+:::caution[Experimental]
+ZyPy is experimental, and its API may change between versions.
+:::
+
+## Next steps
+
+1. [Install ZyPy](/getting-started/installation/) and the tools it needs.
+2. [Create your first project](/getting-started/first-project/), build it and call it from Python.
+3. Read [How ZyPy works](/concepts/how-it-works/) and [Ownership and borrowing](/concepts/ownership/) before writing larger extensions.

@@ -1,0 +1,17 @@
+const std = @import("std");
+const py = @import("zypy");
+
+fn add(a: i64, b: i64) !i64 {
+    return std.math.add(i64, a, b);
+}
+
+pub const module = py.module(.{
+    .doc = "$name, written in Zig.",
+    .functions = .{
+        .add = py.function(add, .{ .doc = "Add two numbers." }),
+    },
+});
+
+comptime {
+    py.exportModule(module);
+}

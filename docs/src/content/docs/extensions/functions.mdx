@@ -1,0 +1,235 @@
+---
+title: Functions
+description: Export Zig functions with named parameters, defaults, and extra arguments.
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+## Export a function
+
+List a function in the module's `.functions`. The field name is the function's name in Python:
+
+```zig title="src/root.zig"
+const std = @import("std");
+const py = @import("zypy");
+
+fn add(a: i64, b: i64) !i64 {
+    return std.math.add(i64, a, b);
+}
+
+pub const module = py.module(.{
+    .functions = .{
+        .add = py.function(add, .{ .doc = "Add two numbers." }),
+        .add_plain = add,
+    },
+});
+
+comptime {
+    py.exportModule(module);
+}
+```
+
+`.add_plain = add` exports the function as it is. `py.function(add, options)` adds options, here a docstring with `.doc`:
+
+```python
+>>> import hello
+>>> hello.add(1, 2)
+3
+>>> hello.add.__doc__
+'Add two numbers.'
+>>> hello.add(1)
+Traceback (most recent call last):
+  ...
+TypeError: add() takes 2 arguments (1 given)
+```
+
+Exported functions need concrete runtime parameter types. `comptime` and `anytype` parameters are not supported.
+
+## Name the parameters
+
+Without `.params`, arguments are positional-only. Use `.params` to name each Zig parameter in order and allow keyword arguments. You can also include Python's signature markers:
+
+- `"/"` ends the positional-only parameters, which can't be passed by keyword;
+- `"*"` starts the keyword-only parameters, which must be passed by keyword.
+
+<Tabs syncKey="lang">
+<TabItem label="Zig">
+```zig
+fn greet(name: py.Str, greeting: py.Str, loud: bool) !py.Str {
+    var buffer: [256]u8 = undefined;
+    const end = if (loud) "!" else ".";
+    const text = std.mem.print(&buffer, "{s}, {s}{s}", .{ try greeting.utf8(), try name.utf8(), end }) catch {
+        return py.raise(.ValueError, "the greeting is too long");
+    };
+    return py.Str.init(text);
+}
+```
+
+```zig
+.greet = py.function(greet, .{
+    .doc = "Greet someone by name.",
+    .params = &.{ "name", "/", "greeting", "*", "loud" },
+    .defaults = .{ .greeting = "Hello", .loud = false },
+}),
+```
+</TabItem>
+<TabItem label="Python">
+```python
+>>> hello.greet("Ann")
+'Hello, Ann.'
+>>> hello.greet("Ann", "Hi")
+'Hi, Ann.'
+>>> hello.greet("Ann", greeting="Hi", loud=True)
+'Hi, Ann!'
+>>> hello.greet(name="Ann")
+Traceback (most recent call last):
+  ...
+TypeError: greet() got some positional-only arguments passed as keyword arguments: 'name'
+>>> hello.greet("Ann", tone="warm")
+Traceback (most recent call last):
+  ...
+TypeError: greet() got an unexpected keyword argument 'tone'
+```
+</TabItem>
+</Tabs>
+
+The Python parameter names may differ from the Zig names. Invalid calls produce the same argument errors as a Python function with that signature.
+
+ZyPy checks `.params` at compile time: the count must match the function's parameters, names must be valid Python identifiers, and the markers must be in a valid order.
+
+## Default values
+
+`.defaults` gives defaults by parameter name, so it needs `.params`. As in Python, a positional parameter without a default can't follow one with a default.
+
+Defaults for plain Zig types are constants checked against the parameter type at compile time. These include numbers, bools, enums, byte strings, and optionals or structs containing them. Defaults for Python object types such as `py.Str` and `py.List` are converted into a new object each time they are used:
+
+```zig
+fn appended(item: i64, items: py.List) !py.List {
+    try items.append(item);
+    return items;
+}
+```
+
+```zig
+.appended = py.function(appended, .{
+    .params = &.{ "item", "items" },
+    .defaults = .{ .items = [_]i64{} },
+}),
+```
+
+```python
+>>> hello.appended(1)
+[1]
+>>> hello.appended(2)
+[2]
+>>> hello.appended(3, [1, 2])
+[1, 2, 3]
+```
+
+Each call gets a separate empty list, so changing one call's default does not affect later calls.
+
+Trailing optional parameters (`?T`) can be left out without any options. They default to `null`, which is Python's `None`:
+
+```zig
+fn clamp(value: f64, low: ?f64, high: ?f64) f64 {
+    const above = @max(value, low orelse value);
+    return @min(above, high orelse above);
+}
+```
+
+```python
+>>> hello.clamp(5.0)
+5.0
+>>> hello.clamp(5.0, 6.0)
+6.0
+>>> hello.clamp(5.0, None, 1.0)
+1.0
+```
+
+`low orelse value` is `low` if it isn't `null`, and `value` otherwise.
+
+## Extra arguments
+
+`py.Args` collects extra positional arguments, like `*args` in Python, and `py.Kwargs` collects extra keyword arguments, like `**kwargs`. Name them in `.params` as `"*name"` and `"**name"`:
+
+```zig
+fn total(numbers: py.Args, options: py.Kwargs) !f64 {
+    var sum: f64 = 0;
+    for (0..numbers.len()) |i| sum += try numbers.get(f64, i);
+
+    const scale = try options.get(f64, "scale") orelse 1;
+    return sum * scale;
+}
+```
+
+```zig
+.total = py.function(total, .{ .params = &.{ "*numbers", "**options" } }),
+```
+
+```python
+>>> hello.total(1, 2, 3)
+6.0
+>>> hello.total(1, 2, scale=10)
+30.0
+```
+
+`numbers.get(f64, i)` reads argument `i` as `f64`. `options.get(f64, "scale")` returns `null` if `scale` was omitted. Use `len`, `contains`, or `iterator` to inspect extra keyword arguments. Iteration follows the order the caller used:
+
+```zig
+fn keywords(options: py.Kwargs) !py.List {
+    const names = try py.List.init();
+    errdefer names.deinit();
+
+    var entries = options.iterator(py.Str, py.Object);
+    while (try entries.next()) |entry| try names.append(entry.key);
+    return names;
+}
+```
+
+```python
+>>> hello.keywords(b=1, a=2)
+['b', 'a']
+```
+
+Without `.params`, a `py.Args` parameter can follow the other parameters, and a `py.Kwargs` parameter can come last. Parameters after `*args` are keyword-only, so they need names in `.params`.
+
+Objects in `py.Args` and `py.Kwargs` are borrowed from the call and stay valid until the function returns.
+
+## Signatures in help() and editors
+
+With `.params`, Python knows the function's signature: `help()` shows it, `inspect.signature` reads it, and IDEs use it.
+
+```python
+>>> import inspect
+>>> inspect.signature(hello.greet)
+<Signature (name, /, greeting='Hello', *, loud=False)>
+>>> inspect.signature(hello.total)
+<Signature (*numbers, **options)>
+```
+
+`help(hello.greet)` prints:
+
+```text
+Help on built-in function greet in module hello:
+
+greet(name, /, greeting='Hello', *, loud=False)
+    Greet someone by name.
+```
+
+Complex defaults such as lists appear as `...` in signatures, which `inspect` displays as `Ellipsis`. Without `.params`, `inspect` cannot read the function's signature. Generated [type stubs](/building/type-stubs/) describe functions either way.
+
+## Options
+
+`py.function` takes these options, all optional:
+
+| Option | What it does |
+| --- | --- |
+| `.doc` | The docstring. |
+| `.params` | Parameter names and the markers `"/"`, `"*"`, `"*name"` and `"**name"`. |
+| `.defaults` | Default values by parameter name. |
+| `.errors` | Map Zig errors to Python exceptions. See [Exceptions](/extensions/exceptions/#map-zig-errors-to-exceptions). |
+| `.release_gil` | Run the function without the GIL, so other Python threads can run meanwhile. See [The GIL and threads](/python/threads/#release-the-gil-during-a-call). |
+
+<Aside type="tip">
+A function can also take a pointer to the module's state, `*State`, at any position. Python doesn't see that parameter: ZyPy fills it in. See [Module state](/extensions/modules/#module-state).
+</Aside>

@@ -1,0 +1,160 @@
+---
+title: Your first project
+description: Create a Zig extension, call it from Python, and build a package.
+---
+
+import { Steps, FileTree, Aside } from '@astrojs/starlight/components';
+
+Create a project with one Zig function, call it from Python, and see what each project file does.
+
+## Create and run a project
+
+<Steps>
+
+1. Create a project called `hello`:
+
+   ```sh
+   uvx zypy new hello
+   ```
+
+   This creates `hello` and downloads ZyPy's Zig package. The directory must be empty or not exist yet. Its name becomes the project name unless you pass `--name`.
+
+2. Build the extension and install it into the project's virtual environment:
+
+   ```sh
+   cd hello
+   uv sync
+   ```
+
+   uv creates `.venv` and installs the project in editable mode. Python loads the extension from `zig-out/`, so later rebuilds update the installed package. ZyPy is also installed as a development dependency.
+
+3. Call the function from Python:
+
+   ```sh
+   uv run python -c "import hello; print(hello.add(1, 2))"
+   ```
+
+   This prints `3`.
+
+</Steps>
+
+<Aside type="note" title="A RuntimeWarning about the GIL">
+If uv chose free-threaded Python, such as 3.14t, Python may warn that it enabled the global interpreter lock (GIL) to load `hello`. The extension still works. To choose regular Python, run `uv python pin 3.14+gil`, then `uv sync`. See [Free-threaded Python](/python/threads/#free-threaded-python) to support running without the GIL.
+</Aside>
+
+## The project's files
+
+<FileTree>
+- hello/
+  - src/
+    - **root.zig** the Python module, written in Zig
+  - build.zig how `zig build` builds the extension
+  - build.zig.zon the Zig package, with ZyPy as a dependency
+  - pyproject.toml the Python package, built by ZyPy
+  - .gitignore build outputs and the virtual environment
+</FileTree>
+
+### src/root.zig
+
+```zig title="src/root.zig"
+const std = @import("std");
+const py = @import("zypy");
+
+fn add(a: i64, b: i64) !i64 {
+    return std.math.add(i64, a, b);
+}
+
+pub const module = py.module(.{
+    .doc = "hello, written in Zig.",
+    .functions = .{
+        .add = py.function(add, .{ .doc = "Add two numbers." }),
+    },
+});
+
+comptime {
+    py.exportModule(module);
+}
+```
+
+- `@import("zypy")` imports ZyPy's library. Code calls it `py`.
+- `add` returns `!i64`, an error union: either an `i64` or a Zig error. `std.math.add` returns `error.Overflow` when the sum doesn't fit in an `i64`, and ZyPy raises that as `OverflowError` in Python.
+- `py.module` defines the Python module. Its argument is a struct literal, `.{ ... }`, whose fields are options. In `.functions`, each field name is a function's name in Python.
+- `py.function` adds options to a function, here a docstring.
+- A `comptime` block runs during compilation. `py.exportModule` makes the module importable by Python using the name from `build.zig`.
+
+### build.zig
+
+```zig title="build.zig"
+const std = @import("std");
+const zypy = @import("zypy");
+
+pub fn build(b: *std.Build) void {
+    _ = zypy.addExtension(b, .{
+        .name = "hello",
+        .root_source_file = b.path("src/root.zig"),
+        .target = b.standardTargetOptions(.{}),
+        .optimize = b.standardOptimizeOption(.{}),
+    });
+}
+```
+
+`zypy.addExtension` builds `src/root.zig` as the `hello` extension. It installs the extension and `hello.pyi` type stub into `zig-out/python/`. A dotted name such as `"mypkg._core"` places the extension inside a package. See [build.zig](/building/build-zig/) for more build options.
+
+### pyproject.toml
+
+```toml title="pyproject.toml" {6-8}
+[project]
+name = "hello"
+version = "0.1.0"
+requires-python = ">=3.13"
+
+[build-system]
+requires = ["zypy>=0.1.0,<0.2"]
+build-backend = "zypy"
+
+[dependency-groups]
+# Install the zypy command for development.
+dev = ["zypy>=0.1.0,<0.2"]
+
+[tool.uv]
+# Rebuild the editable install when these files change.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "build.zig" },
+    { file = "build.zig.zon" },
+    { file = "src/**/*.zig" },
+]
+```
+
+- `[build-system]` names ZyPy as the build backend, so any Python build tool can build the project.
+- `[dependency-groups]` makes ZyPy a development dependency, so `uv sync` installs the `zypy` command into the project's environment.
+- `cache-keys` tells uv to rebuild the project when these files change.
+
+`build.zig.zon` lists the Zig dependencies. ZyPy's entry uses a release URL and a hash that Zig checks after downloading. You can also keep your project version in this file (see [Packaging](/building/packaging/#the-version)).
+
+## Change the code
+
+After editing Zig code, rebuild the extension and start a new Python process. A running process cannot reload the compiled extension. You can rebuild in three ways:
+
+- **`uv run`** rebuilds the project before it runs a command whenever one of the `cache-keys` files changed. Running `uv run python` again is enough.
+- **`zig build`** builds into `zig-out/python/`, where the editable install points. Run `uv run python -m ziglang build` to use the Zig installed with ZyPy, or `zig build` if Zig 0.17 is on your `PATH`.
+- **`uv run zypy develop`** rebuilds and reinstalls the project, and can pick an optimize mode with `--optimize`.
+
+These commands default to debug mode, which checks for overflow, out-of-bounds indexes, and other runtime mistakes. Failed checks stop the process with a Zig panic (see [Debugging](/building/debugging/)).
+
+## Build a wheel
+
+To share the project, build a wheel and a source distribution:
+
+```sh
+uv build
+```
+
+The output files are in `dist/`:
+
+```
+hello-0.1.0.tar.gz
+hello-0.1.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+```
+
+A wheel installs without compiling the project. This example targets CPython 3.14 on x86_64 Linux with glibc 2.17 or newer. Wheels default to Zig's fast mode, without debug-mode safety checks. See [Packaging](/building/packaging/) for other targets and build settings.

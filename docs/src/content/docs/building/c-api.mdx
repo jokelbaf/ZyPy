@@ -1,0 +1,60 @@
+---
+title: The C API
+description: Use the CPython C API alongside ZyPy types.
+---
+
+`py.c` exposes the [CPython C API](https://docs.python.org/3/c-api/index.html) from Python's headers. Use it when you need a function or type that ZyPy does not wrap:
+
+```zig
+const std = @import("std");
+const py = @import("zypy");
+const c = py.c;
+
+fn reprOf(value: py.Object) !py.Str {
+    return py.Str.own(c.PyObject_Repr(value.ptr));
+}
+
+fn length(value: py.Object) !usize {
+    const size = c.PyObject_Length(value.ptr);
+    if (size < 0) return error.PythonError;
+    return @intCast(size);
+}
+
+fn isNone(value: py.Object) bool {
+    return value.ptr == c.Py_None();
+}
+
+fn version() !py.Str {
+    return py.Str.init(std.mem.span(c.Py_GetVersion()));
+}
+```
+
+```python
+>>> import capi
+>>> capi.repr_of("x")
+"'x'"
+>>> capi.length([1, 2])
+2
+>>> capi.length(5)
+Traceback (most recent call last):
+  ...
+TypeError: object of type 'int' has no len()
+>>> capi.is_none(None)
+True
+```
+
+## References between ZyPy and the C API
+
+- `obj.ptr` is the `*c.PyObject` of any ZyPy reference, such as `value.ptr` or `list.obj.ptr`, to pass to C functions.
+- `py.Object.own(ptr)` takes ownership of a new reference returned by a C function. Typed references such as `py.Str.own` do the same. A null pointer means an exception is set, so `own` returns `error.PythonError`.
+- `py.Object.borrow(ptr)` wraps a borrowed reference, which the C API documentation marks as such, without taking it over.
+
+Check each C function's documentation for ownership and error handling. For example, `PyObject_Length` returns -1 when it sets an exception; return `error.PythonError` in that case. Hold the GIL when calling the C API unless the function's documentation permits otherwise.
+
+## What translate-c changes
+
+- Macros that compute a value at run time become functions: `Py_None` is `c.Py_None()`, and `Py_NotImplemented` is `c.Py_NotImplemented()`.
+- Some macros don't translate at all. Using one is a compile error in the translated file, `unable to translate C expr`. Most have a function to use instead, such as `PyTuple_GetItem` for `PyTuple_GET_ITEM`.
+- Pointers from C are C pointers, written `[*c]T`, which can be null. They coerce to Zig's `?*T` and `*T`, so `orelse` and `own` work on them.
+
+When building for the [stable ABI](/building/packaging/#the-stable-abi), `py.c` exposes only the limited API. Calling an unavailable function produces a compile error.

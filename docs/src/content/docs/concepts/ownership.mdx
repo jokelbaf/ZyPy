@@ -1,0 +1,142 @@
+---
+title: Ownership and borrowing
+description: Know when to release references and how to return, store, and borrow Python objects.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Reference counts
+
+CPython tracks references to its objects. Keeping an owned reference increases the count; releasing it decreases the count. When the count reaches zero, Python can free the object. Its garbage collector also handles objects that refer to each other in cycles.
+
+ZyPy manages reference counts, but you decide when to release references created in Zig. Each reference, such as `py.Object` or `py.List`, is either owned or borrowed:
+
+- **Owned**: you are responsible for releasing it with `deinit`, or returning it to Python.
+- **Borrowed**: another owner keeps the object alive, such as the caller of your function or the list the item is in. `deinit` on a borrowed reference does nothing.
+
+Calling `deinit` on a borrowed reference does nothing. You can use the same cleanup pattern for both kinds, except for references you return.
+
+## Where references come from
+
+| You get the reference from | It is |
+| --- | --- |
+| Creating an object: `py.Str.init`, `py.List.init`, `py.Object.init`, `newRef()` | owned |
+| Python: `py.import`, `call`, `callMethod`, `getAttr`, `py.eval` | owned |
+| Removing an item: `py.List.pop`, `py.Dict.pop` | owned |
+| A parameter of your function | borrowed from the caller, until your function returns |
+| Reading an item: `py.List.get`, `py.Tuple.get`, `py.Dict.get`, iterating, `obj.as(T)` | borrowed from the container |
+
+## Release references with defer
+
+`defer` runs a statement when the enclosing block exits, whether it returns a value or an error. Put it right after the line that creates the reference:
+
+```zig
+fn dumps(value: py.Object) !py.Str {
+    const json = try py.import("json");
+    defer json.deinit();
+
+    return json.callMethod(py.Str, "dumps", .{value});
+}
+```
+
+```python
+>>> import demo
+>>> demo.dumps({"a": [1, 2]})
+'{"a": [1, 2]}'
+```
+
+The `defer` releases the owned module reference. The argument `value` is borrowed from the caller. The owned result from `callMethod` is returned to Python, so this function does not release it.
+
+## Return objects
+
+ZyPy takes ownership of a returned reference, so do not release it yourself. If a later operation might fail, use `errdefer` to release the object only on an error:
+
+```zig
+fn squares(n: usize) !py.List {
+    const list = try py.List.init();
+    errdefer list.deinit();
+
+    for (0..n) |i| try list.append(i * i);
+    return list;
+}
+```
+
+```python
+>>> demo.squares(5)
+[0, 1, 4, 9, 16]
+```
+
+You can return a borrowed reference: ZyPy creates an owned reference before passing it to Python. However, Zig runs `defer` statements first. If they release the container that owns the item, take your own reference with `newRef()` before returning:
+
+```zig
+fn firstWord(text: py.Str) !py.Str {
+    const words = try text.obj.callMethod(py.List, "split", .{});
+    defer words.deinit();
+
+    if (words.len() == 0) return py.raise(.ValueError, "no words");
+    const first = try words.get(py.Str, 0);
+    return first.newRef();
+}
+```
+
+```python
+>>> demo.first_word("  hello big world")
+'hello'
+```
+
+`first` borrows from `words`. Releasing `words` could free that item too; `first.newRef()` keeps it alive for the caller.
+
+## Store objects
+
+Storing an object, with `append`, `set` or `setAttr`, gives the container a reference of its own. It never takes yours, so you still release what you created:
+
+```zig
+fn tagged(items: py.List) !void {
+    const tag = try py.Str.init("new");
+    defer tag.deinit();
+
+    try items.append(tag);
+}
+```
+
+```python
+>>> items = [1]
+>>> demo.tagged(items)
+>>> items
+[1, 'new']
+```
+
+You can also store Zig values directly: `try items.append(42)` converts `42` to a Python `int`, and `try items.append("new")` converts the string literal to a `str`.
+
+## Keep borrowed items
+
+A borrowed item stays valid while its owner holds it. If you call Python, that code may remove the item from its container. Use `newRef()` before the call to keep the item alive, then release your reference with `deinit`.
+
+## Views
+
+Views such as `py.Buffer(T)`, `py.Sequence(T)`, and `py.Iterator(T)` hold resources as well as object references. ZyPy releases views received as parameters after the call. Release views you create or obtain from a container or Python call with `deinit`.
+
+## Values that hold several references
+
+Calls can return Zig tuples and structs, and each reference in them is owned. `py.deinit` releases every reference and view inside a value, including inside tuples, structs, optionals and arrays:
+
+```zig
+fn longest(callback: py.Object) !usize {
+    const words = try callback.call(struct { py.Str, py.Str }, .{});
+    defer py.deinit(words);
+
+    const first, const second = words;
+    return @max((try first.utf8()).len, (try second.utf8()).len);
+}
+```
+
+```python
+>>> demo.longest(lambda: ("ab", "xyz"))
+3
+```
+
+Returning a value with several references transfers them to Python. For example, `return .{ try py.Str.init("x"), 1 };` returns the tuple `('x', 1)` without needing separate cleanup.
+
+<Aside type="note">
+Use `py.Owned(T)` for Python objects stored in class fields or module state. It lets Python's garbage collector find those references. See [Instances and fields](/extensions/classes/instances/#python-objects-in-fields).
+</Aside>

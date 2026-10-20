@@ -1,0 +1,238 @@
+---
+title: The GIL and threads
+description: Release the GIL, call Python from Zig threads, and support free-threaded Python and subinterpreters.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## The GIL
+
+On regular CPython builds, the global interpreter lock (GIL) allows one thread at a time to run Python code or use Python objects. A ZyPy function holds it by default.
+
+For computations that do not use Python objects, releasing the GIL lets other Python threads run. Several threads can then execute Zig code in parallel.
+
+## Release the GIL during a call
+
+`.release_gil = true` runs the whole function without the GIL. ZyPy converts the arguments first, with the GIL, and converts the result afterwards:
+
+```zig
+fn sumSquares(n: u64) u64 {
+    var total: u64 = 0;
+    var i: u64 = 0;
+    while (i < n) : (i += 1) total +%= i *% i;
+    return total;
+}
+```
+
+```zig
+.sum_squares = py.function(sumSquares, .{ .release_gil = true }),
+```
+
+```python
+>>> import concurrent.futures
+>>> import work
+>>> with concurrent.futures.ThreadPoolExecutor(4) as pool:
+...     results = list(pool.map(work.sum_squares, [10**6] * 4))
+...
+>>> results[0]
+333332833333500000
+```
+
+The four calls run in parallel, on four threads. `+%=` and `*%` wrap around on overflow instead of stopping the process.
+
+A function that runs without the GIL must not use Python at all. ZyPy rejects parameter and result types that need the GIL at compile time, such as `py.List` or a pointer to a class instance:
+
+```text
+error: 'f': .release_gil can't be used with parameter 1, a types.List: Python objects need the GIL (use plain values, slices or buffers)
+```
+
+Plain values, byte slices, and [buffer views](/extensions/buffers/#release-the-gil-during-the-work) can be used without the GIL. Do not access Python through globals or other paths that ZyPy cannot check. Use `.errors` instead of `py.raise`, and allocate with `py.raw_allocator` or another Zig allocator. `*State` parameters are rejected because the state may be accessed by another thread.
+
+## Release the GIL for part of a function
+
+`py.allowThreads(func, args)` calls `func` with the GIL released and returns its result. Use it to release the GIL for the slow part of a function that needs Python before or after:
+
+```zig
+fn checksum(data: py.Bytes) u32 {
+    return py.allowThreads(crc32, .{data.slice()});
+}
+
+fn crc32(bytes: []const u8) u32 {
+    return std.hash.Crc32.hash(bytes);
+}
+```
+
+The caller keeps `data` alive until `checksum` returns. Its immutable byte contents are therefore safe to read in `crc32` without the GIL. `py.allowThreads` checks parameter and result types using the same rules as `.release_gil`.
+
+## Zig threads
+
+Threads that Python didn't create, such as threads from `std.Thread.spawn`, must attach to Python before they use it. `py.Gil.acquire()` attaches the thread and takes the GIL, and `release` undoes it:
+
+```zig
+const Call = struct {
+    function: py.Object,
+    result: ?py.Object = null,
+    failure: ?py.Exception = null,
+};
+
+fn callInThread(f: py.Object) !py.Object {
+    var call: Call = .{ .function = f };
+    const thread = try std.Thread.spawn(.{}, runCall, .{&call});
+    py.allowThreads(std.Thread.join, .{thread});
+
+    if (call.failure) |exc| {
+        defer exc.deinit();
+        return exc.raise();
+    }
+    return call.result.?;
+}
+
+fn runCall(call: *Call) void {
+    const gil = py.Gil.acquire();
+    defer gil.release();
+
+    call.result = call.function.call(py.Object, .{}) catch {
+        call.failure = py.exception.take();
+        return;
+    };
+}
+```
+
+```python
+>>> work.call_in_thread(lambda: 42)
+42
+>>> work.call_in_thread(lambda: 1 / 0)
+Traceback (most recent call last):
+  ...
+ZeroDivisionError: division by zero
+```
+
+- The thread that waits for the new thread must release the GIL while it waits, or the new thread can never take it. `py.allowThreads(std.Thread.join, .{thread})` does that.
+- An exception belongs to the thread that raised it. `runCall` takes it with `py.exception.take()`, and the calling thread raises it again.
+- Calls to `acquire` nest: a thread that already holds the GIL keeps it.
+- `py.Gil` works with the main interpreter. In [embedded Python](/python/embedding/), threads must finish before `py.Interpreter.deinit`.
+
+## Free-threaded Python
+
+Free-threaded builds such as 3.13t and 3.14t can run Python threads in parallel without the GIL. Importing an extension that does not declare support enables the GIL and produces a warning:
+
+```text
+RuntimeWarning: The global interpreter lock (GIL) has been enabled to load module 'hello', which has not declared that it can run safely without the GIL.
+```
+
+`.free_threaded = true` on `py.module` declares that the module runs without the GIL:
+
+```zig
+pub const module = py.module(.{
+    .classes = .{ .Counter = Counter },
+    .functions = .{
+        .sum_squares = py.function(sumSquares, .{ .release_gil = true }),
+        .checksum = checksum,
+        .call_in_thread = callInThread,
+        .total_length = totalLength,
+    },
+    .free_threaded = true,
+    .subinterpreters = true,
+});
+```
+
+Set `.free_threaded = true` on submodules too. Python checks the top-level module at import, so ZyPy rejects submodules with mismatched support. This option has no effect on regular Python builds.
+
+### What ZyPy locks for you
+
+Without the GIL, two threads can use the same instance at the same moment. ZyPy locks objects for the duration of each call of a `.free_threaded` module:
+
+- the instance that a method, special method, field or property is called on;
+- the module object, when the function takes `*State` or `*const State`;
+- instances passed as `*T` or `*const T`.
+
+For example, a simple method can update a field while the instance is locked:
+
+```zig
+const Counter = struct {
+    count: u64 = 0,
+
+    pub const class = py.class(.{
+        .fields = .{ .count = .read_only },
+        .methods = .{ .increment = increment },
+    });
+
+    fn increment(self: *Counter) void {
+        self.count += 1;
+    }
+};
+```
+
+```python
+>>> import threading
+>>> counter = work.Counter()
+>>> def bump():
+...     for _ in range(100_000):
+...         counter.increment()
+...
+>>> threads = [threading.Thread(target=bump) for _ in range(4)]
+>>> for thread in threads:
+...     thread.start()
+...
+>>> for thread in threads:
+...     thread.join()
+...
+>>> counter.count
+400000
+```
+
+A call can lock at most two objects. Pass additional instances by value (`T`) to avoid a compile error.
+
+Python may suspend these locks while a thread waits, including during calls into Python. Do not assume an instance stays unchanged across such calls. These critical sections avoid deadlocks between the Python-managed object locks.
+
+ZyPy keeps container items read by a free-threaded call alive until that call returns. Operations such as `py.List.pop` also protect their own steps from concurrent changes.
+
+### What stays your job
+
+- Zig globals and other data that several calls share, outside instances and module state. Protect them with `std.Thread.Mutex` or atomics.
+- Instances that a call reaches without a `*T` parameter, such as through `py.Instance(T).value()` or an item read from a container as a pointer.
+- Consistency across several calls: two calls that each lock an object can still interleave.
+
+### Borrow scopes
+
+Repeated container reads can retain many objects until a free-threaded call returns. Use `py.BorrowScope` to release those references earlier, for example once per loop iteration:
+
+```zig
+fn totalLength(words: py.List) !usize {
+    var total: usize = 0;
+    for (0..words.len()) |i| {
+        const scope: py.BorrowScope = .begin();
+        defer scope.end();
+
+        const word = try words.get(py.Str, i);
+        total += (try word.utf8()).len;
+    }
+    return total;
+}
+```
+
+`end` releases references retained since `begin`. Do not use items read in the scope after it ends. Scopes can nest; on regular Python builds, they do nothing.
+
+## Subinterpreters
+
+A process can run several Python interpreters with separate modules, objects, and GILs. Python 3.14 provides [`concurrent.interpreters`](https://docs.python.org/3/library/concurrent.interpreters.html) for this. By default, a ZyPy module cannot be imported into an interpreter with its own GIL:
+
+```text
+ImportError: module hello does not support loading in subinterpreters
+```
+
+`.subinterpreters = true` declares that the module supports it. Each interpreter then gets its own module object, state, classes and exception types. `interpreter.call` runs a function in the other interpreter, which imports `work` there:
+
+```python
+>>> from concurrent import interpreters
+>>> interpreter = interpreters.create()
+>>> interpreter.call(work.sum_squares, 4)
+14
+>>> interpreter.close()
+```
+
+Store Python objects in [module state](/extensions/modules/#module-state), never in Zig globals shared by interpreters. Set `.subinterpreters = true` on each submodule that needs support as well.
+
+<Aside type="note">
+`py.Gil` attaches threads to the main interpreter only. To run code in a subinterpreter, use `concurrent.interpreters` from Python.
+</Aside>

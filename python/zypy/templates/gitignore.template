@@ -1,0 +1,7 @@
+.venv/
+.zig-cache/
+zig-out/
+zig-pkg/
+dist/
+__pycache__/
+*.so

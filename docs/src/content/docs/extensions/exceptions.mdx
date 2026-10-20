@@ -1,0 +1,189 @@
+---
+title: Exceptions
+description: Raise, map, define, and handle Python exceptions from Zig.
+---
+
+[Errors](/concepts/errors/) explains how errors move between Zig and Python. This page covers the API.
+
+## Raise exceptions
+
+Return `py.raise(kind, message)` to raise a Python exception. It sets the exception and returns `error.PythonError`. Use `py.raiseFmt` to format a message with `std.fmt`:
+
+```zig
+fn checkAge(age: i64) !u8 {
+    if (age < 0) return py.raiseFmt(.ValueError, "age must be positive, got {d}", .{age});
+    return std.math.cast(u8, age) orelse py.raise(.ValueError, "age is too large");
+}
+```
+
+```python
+>>> import parsing
+>>> parsing.check_age(30)
+30
+>>> parsing.check_age(-5)
+Traceback (most recent call last):
+  ...
+ValueError: age must be positive, got -5
+```
+
+Use a built-in exception name such as `.ValueError`, or a custom type from `py.exceptionType`. ZyPy checks built-in names at compile time. `py.raiseFmt` truncates messages longer than 511 bytes and adds `...`.
+
+`std.math.cast(u8, age)` returns `null` when the value doesn't fit in a `u8`, so `orelse` raises the exception instead.
+
+## Map Zig errors to exceptions
+
+Without a mapping, an unknown Zig error raises `RuntimeError` with the error's name. `.errors` maps errors to exceptions, either with the error's name as the message, or with a message of your own:
+
+```zig
+const FileError = error{ NotFound, Locked };
+
+fn openFile(id: u32) FileError!u32 {
+    if (id == 0) return error.NotFound;
+    if (id == 1) return error.Locked;
+    return id;
+}
+```
+
+```zig
+.open_file = py.function(openFile, .{
+    .errors = .{ .NotFound = .KeyError, .Locked = .{ .PermissionError, "the file is locked" } },
+}),
+```
+
+```python
+>>> parsing.open_file(0)
+Traceback (most recent call last):
+  ...
+KeyError: 'NotFound'
+>>> parsing.open_file(1)
+Traceback (most recent call last):
+  ...
+PermissionError: the file is locked
+```
+
+A function's `.errors` table takes priority over the module's table. ZyPy checks function mappings against the error set, so a typo such as `.NotFonud` produces a compile error. The module's mappings apply to all its functions and methods. You can also override the default mappings for `OutOfMemory`, `Overflow`, and `DivisionByZero`.
+
+## Custom exception types
+
+`py.exceptionType` defines an exception class. List it in the module's `.exceptions`:
+
+```zig
+const ParseError = py.exceptionType(.{ .base = .ValueError, .doc = "The input couldn't be parsed." });
+
+fn parseNumber(text: []const u8) !i64 {
+    return std.fmt.parseInt(i64, text, 10) catch return py.raise(ParseError, "not a number");
+}
+
+fn parseStrict(text: []const u8) !u8 {
+    return std.fmt.parseInt(u8, text, 10);
+}
+```
+
+```zig
+pub const module = py.module(.{
+    .exceptions = .{ .ParseError = ParseError },
+    .errors = .{ .InvalidCharacter = ParseError },
+    .functions = .{
+        .check_age = checkAge,
+        .open_file = py.function(openFile, .{
+            .errors = .{ .NotFound = .KeyError, .Locked = .{ .PermissionError, "the file is locked" } },
+        }),
+        .parse_number = parseNumber,
+        .parse_strict = parseStrict,
+        .lookup_or = lookupOr,
+        .describe_failure = describeFailure,
+        .retry_once = retryOnce,
+    },
+});
+```
+
+```python
+>>> parsing.parse_number(b"x")
+Traceback (most recent call last):
+  ...
+parsing.ParseError: not a number
+>>> parsing.parse_strict(b"x")
+Traceback (most recent call last):
+  ...
+parsing.ParseError: InvalidCharacter
+>>> issubclass(parsing.ParseError, ValueError)
+True
+```
+
+Set `.base` to a built-in exception name or a custom type listed earlier in `.exceptions`. The default is `.Exception`. Set `.doc` for the docstring.
+
+Custom types work in `py.raise`, `.errors` mappings, and `matches`. `ParseError.object()` returns an owned `py.Object` reference to the exception class.
+
+A type belongs to the one module that lists it. To use it in a submodule or another package, import it from that module in Python.
+
+## Catch and inspect exceptions
+
+When a call into Python fails, the exception is set and the call returns `error.PythonError`. `py.exception` works on that current exception:
+
+- `py.exception.matches(kind)` checks its type, including subclasses: `.LookupError` matches a `KeyError`.
+- `py.exception.clear()` discards it.
+- `py.exception.take()` removes it and returns it as an owned `py.Exception`.
+
+```zig
+fn lookupOr(mapping: py.Object, key: py.Object, fallback: py.Object) !py.Object {
+    return mapping.callMethod(py.Object, "__getitem__", .{key}) catch {
+        if (!py.exception.matches(.LookupError)) return error.PythonError;
+        py.exception.clear();
+        return fallback;
+    };
+}
+```
+
+```python
+>>> parsing.lookup_or({}, "k", 0)
+0
+>>> parsing.lookup_or([], 3, None) is None
+True
+>>> parsing.lookup_or({"k": 1}, "k", 0)
+1
+```
+
+Returning `error.PythonError` with the exception still set passes it on to Python unchanged.
+
+`py.Exception` holds an exception object. `typeName()` returns its class name, `message()` returns `str(exc)`, and `traceback()` formats the exception with its traceback:
+
+```zig
+fn describeFailure(f: py.Object) !py.Str {
+    f.call(void, .{}) catch {
+        const exc = py.exception.take();
+        defer exc.deinit();
+
+        const name = try exc.typeName();
+        defer name.deinit();
+        const message = try exc.message();
+        defer message.deinit();
+
+        var buffer: [256]u8 = undefined;
+        return py.Str.init(try std.mem.print(&buffer, "{s}: {s}", .{ try name.utf8(), try message.utf8() }));
+    };
+    return py.Str.init("no error");
+}
+```
+
+```python
+>>> parsing.describe_failure(lambda: {}["k"])
+"KeyError: 'k'"
+>>> parsing.describe_failure(lambda: 1 / 0)
+'ZeroDivisionError: division by zero'
+```
+
+`exc.matches(kind)` checks the type of a taken exception, and `exc.raise()` raises it again, with its traceback, and returns `error.PythonError`:
+
+```zig
+fn retryOnce(f: py.Object) !py.Object {
+    return f.call(py.Object, .{}) catch {
+        const first = py.exception.take();
+        defer first.deinit();
+
+        if (!first.matches(.ConnectionError)) return first.raise();
+        return f.call(py.Object, .{});
+    };
+}
+```
+
+`exc.raise()` keeps your reference, so you still release it with `deinit`. To pass an exception between threads, take it in the thread where it occurred and raise it in the calling thread (see [The GIL and threads](/python/threads/#zig-threads)).

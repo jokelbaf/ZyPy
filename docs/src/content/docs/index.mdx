@@ -1,0 +1,106 @@
+---
+title: ZyPy
+description: Write Python extensions in Zig and call Python from Zig programs.
+template: splash
+hero:
+  title: Python extensions, written in Zig
+  image:
+    light: ../../assets/logo-light.svg
+    dark: ../../assets/logo-dark.svg
+    alt: The ZyPy logo, a Z made of an orange and a blue snake
+  tagline: Write Zig functions and classes that you can import from Python. ZyPy handles conversions, builds packages, and generates type stubs.
+  actions:
+    - text: Get started
+      link: /getting-started/introduction/
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/jokelbaf/ZyPy
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+<div class="showcase">
+<div>
+
+```zig title="src/root.zig"
+const std = @import("std");
+const py = @import("zypy");
+
+fn add(a: i64, b: i64) !i64 {
+    return std.math.add(i64, a, b);
+}
+
+pub const module = py.module(.{
+    .doc = "hello, written in Zig.",
+    .functions = .{
+        .add = py.function(add, .{ .doc = "Add two numbers." }),
+    },
+});
+
+comptime {
+    py.exportModule(module);
+}
+```
+
+</div>
+<div>
+
+```python title="Python" wrap
+>>> import hello
+>>> hello.add(1, 2)
+3
+>>> hello.add(2**63 - 1, 1)
+Traceback (most recent call last):
+  ...
+OverflowError: Overflow
+>>> hello.add(1, "2")
+Traceback (most recent call last):
+  ...
+TypeError: 'str' object cannot be interpreted as an integer
+```
+
+</div>
+</div>
+
+## What ZyPy does
+
+<CardGrid>
+	<Card title="Functions" icon="seti:zig">
+		Export Zig functions with named parameters, defaults, `*args`, and `**kwargs`. ZyPy converts arguments and reports invalid calls as Python exceptions.
+	</Card>
+	<Card title="Classes" icon="puzzle">
+		Define Python classes with Zig structs. Add fields, properties, operators, iteration, and inheritance.
+	</Card>
+	<Card title="Python objects" icon="seti:python">
+		Work with Python lists and dicts, call Python functions, and access NumPy arrays and other buffers without copying.
+	</Card>
+	<Card title="Threads" icon="random">
+		Release the GIL during long computations, call Python from Zig threads, or support free-threaded Python.
+	</Card>
+	<Card title="Packaging" icon="setting">
+		Build Linux, macOS, and stable ABI wheels, along with source distributions. manylinux builds do not need Docker.
+	</Card>
+	<Card title="Embedding" icon="laptop">
+		Run Python inside a Zig program and let it import Zig modules. You can ship Python with the program.
+	</Card>
+</CardGrid>
+
+## Try it
+
+With [uv](https://docs.astral.sh/uv/) installed, create a project and call its function from Python:
+
+```sh
+uvx zypy new hello
+cd hello
+uv run python -c "import hello; print(hello.add(1, 2))"
+```
+
+## Learn more
+
+<CardGrid>
+	<LinkCard title="Your first project" description="Create, build and change a project, then build a wheel." href="/getting-started/first-project/" />
+	<LinkCard title="How ZyPy works" description="Understand modules, calls, values, and references." href="/concepts/how-it-works/" />
+	<LinkCard title="Classes" description="Constructors, fields, methods, special methods and inheritance." href="/extensions/classes/defining/" />
+	<LinkCard title="API reference" description="Types, functions, and build helpers with their signatures." href="/api/" />
+</CardGrid>

@@ -1,0 +1,10 @@
+.{
+    .name = .zypy_embed_tests,
+    .version = "0.0.0",
+    .fingerprint = 0x97c6e42767b16272,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .zypy = .{ .path = "../.." },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}

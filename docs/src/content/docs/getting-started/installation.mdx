@@ -1,0 +1,45 @@
+---
+title: Installation
+description: Set up Python, uv, and ZyPy for your first project.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+## Requirements
+
+- **Linux** with glibc or musl, or **macOS** 11 or newer. Windows isn't supported yet.
+- **CPython 3.13** or newer, including free-threaded builds such as 3.14t. Other Python implementations, such as PyPy, aren't supported.
+- **Zig 0.17**. You don't need to install it yourself: ZyPy depends on the [`ziglang`](https://pypi.org/project/ziglang/) package, which ships Zig as a Python package.
+- **[uv](https://docs.astral.sh/uv/)**, used in this guide to manage Python and builds. It gives each project a virtual environment: a directory with its own installed packages.
+
+## Install ZyPy
+
+ZyPy is available on PyPI as [`zypy`](https://pypi.org/project/zypy/). Use `uvx` to run its command without a separate installation step:
+
+<Steps>
+
+1. Install uv by following its [installation guide](https://docs.astral.sh/uv/getting-started/installation/).
+
+2. Check that the `zypy` command runs:
+
+   ```sh
+   uvx zypy --version
+   ```
+
+   The command prints the installed ZyPy version. `uvx` downloads and caches the package the first time it runs.
+
+</Steps>
+
+To have a `zypy` command on your `PATH` instead, install it with `uv tool install zypy`, or with `pip install zypy` into a virtual environment.
+
+Generated projects list ZyPy as both a build requirement and a development dependency. Build tools install it to compile the extension; `uv sync` also makes the `zypy` command available in the project. `zypy new` adds the matching Zig package release to `build.zig.zon`.
+
+## How ZyPy finds Zig
+
+The build backend runs `zig build` for you. It uses the first Zig it finds:
+
+1. the program named by the `ZYPY_ZIG` environment variable;
+2. the `ziglang` package in the Python environment that runs the build;
+3. `zig` on your `PATH`.
+
+The backend checks for Zig 0.17 and reports an error for other versions. To build manually, run `uv run python -m ziglang build` in your project, or install Zig 0.17 from [ziglang.org](https://ziglang.org/download/).

@@ -1,0 +1,17 @@
+.venv/
+.zig-cache/
+zig-out/
+zig-pkg/
+dist/
+__pycache__/
+*.so
+examples/mixed/python/mixed/_core.pyi
+.pytest_cache/
+.ruff_cache/
+doc/
+node_modules/
+.astro/
+docs/src/content/docs/api/
+docs/src/api-links.json
+
+.vscode/

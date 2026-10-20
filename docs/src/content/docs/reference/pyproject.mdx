@@ -1,0 +1,54 @@
+---
+title: pyproject.toml
+description: Configure builds, package files, versions, and environment settings.
+---
+
+ZyPy reads its settings from the `[tool.zypy]` table of `pyproject.toml`. Every key is optional, and unknown keys are errors.
+
+```toml title="pyproject.toml"
+[tool.zypy]
+python-source = "python"
+optimize = "fast"
+manylinux = "2_28"
+abi3 = "3.13"
+exclude = ["benchmarks/*"]
+```
+
+| Key | Value | Default | What it does |
+| --- | --- | --- | --- |
+| `python-source` | a directory | none | Python files to package next to the extensions, for packages that [mix Python and Zig](/extensions/modules/#packages-that-mix-python-and-zig). It must be inside the project. |
+| `optimize` | `"debug"`, `"safe"`, `"fast"` or `"small"` | `"fast"` | The Zig optimize mode of wheels (see [Debugging](/building/debugging/#optimize-modes)). |
+| `manylinux` | a glibc version such as `"2_28"`, or `"off"` | `"2_17"` | The oldest glibc that Linux wheels support, or `"off"` for this machine's glibc (see [Packaging](/building/packaging/#linux)). |
+| `abi3` | a Python version such as `"3.13"` | none | Build [stable ABI](/building/packaging/#the-stable-abi) wheels for this Python version and later ones. At least `"3.13"`. |
+| `exclude` | a list of glob patterns | `[]` | Files to leave out of source distributions. A pattern matches a file's path relative to the project, or its name. |
+
+## Config settings
+
+Config settings override `optimize` or `manylinux` for a single build:
+
+```sh
+uv build -C optimize=safe -C manylinux=2_28
+pip wheel . -C optimize=safe
+```
+
+Other keys are errors.
+
+## The version
+
+Set `dynamic = ["version"]` in `[project]` to read the version from `.version` in `build.zig.zon`:
+
+```toml title="pyproject.toml"
+[project]
+name = "mixed"
+dynamic = ["version"]
+```
+
+ZyPy converts the Zig version to a Python one, so `1.2.0-rc.1` becomes `1.2.0rc1`. The version is the only field that can be dynamic.
+
+## Environment variables
+
+| Variable | What it does |
+| --- | --- |
+| `ZYPY_ZIG` | The Zig command to use, instead of the `ziglang` package or `zig` on `PATH` (see [Installation](/getting-started/installation/#how-zypy-finds-zig)). |
+| `SOURCE_DATE_EPOCH` | File timestamp for reproducible builds, in seconds since 1970 (0 to 4294967295). It applies to wheels and source distributions. Wheels default to 1980-01-01. |
+| `MACOSX_DEPLOYMENT_TARGET` | The oldest macOS version that macOS wheels support, such as `12.0`. |

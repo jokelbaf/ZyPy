@@ -1,0 +1,266 @@
+---
+title: Type conversions
+description: Convert values between Zig and Python, from numbers and strings to tuples and structs.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+ZyPy uses the same conversion rules for function arguments and results, container items, calls into Python, and `obj.as(T)`. Your Zig type determines which Python values are accepted.
+
+| Zig | Python |
+| --- | --- |
+| `i8`, `u32`, `i128`, ... (any width) | `int`, range-checked |
+| `f16`, `f32`, `f64` | `float` |
+| `bool` | `bool`; arguments accept any object, by truthiness |
+| `void` (results only) | `None` |
+| `?T` | `T` or `None` |
+| `E!T` (results only) | `T`, or an exception |
+| tuples, such as `struct { i64, py.Str }` | `tuple` of that length |
+| other structs | `dict`; arguments accept any mapping |
+| enums | `str` with the tag's name; arguments also accept `enum.Enum` members |
+| `[]const u8` | `bytes` |
+| string literals | `str` |
+| other slices and arrays (results only) | `list`, or `bytes` for `u8` items |
+| `py.Object`, `py.Str`, `py.List`, ... | the object itself (see [Python objects](/extensions/objects/)) |
+| `py.Sequence(T)`, `py.Iterator(T)` | any iterable except `str` (see [Sequences and iterators](/extensions/iterables/)) |
+| `py.Buffer(T)` and the other buffer views | objects with the buffer protocol (see [Buffers](/extensions/buffers/)) |
+| classes: `T`, `*T`, `*const T`, `py.Instance(T)` | instances of a Zig class (see [Classes](/extensions/classes/defining/)) |
+
+## Integers
+
+Integers of any width convert to `int`. Arguments accept an `int`, or any object with an `__index__` method, such as `bool` and NumPy's integer types. ZyPy checks that the value fits:
+
+<Tabs syncKey="lang">
+<TabItem label="Zig">
+```zig
+fn double(x: u8) !u8 {
+    return std.math.mul(u8, x, 2);
+}
+```
+</TabItem>
+<TabItem label="Python">
+```python
+>>> import convert
+>>> convert.double(100)
+200
+>>> convert.double(300)
+Traceback (most recent call last):
+  ...
+OverflowError: int out of range for u8
+>>> convert.double(-1)
+Traceback (most recent call last):
+  ...
+ValueError: Cannot convert negative int
+>>> convert.double(2.5)
+Traceback (most recent call last):
+  ...
+TypeError: 'float' object cannot be interpreted as an integer
+>>> convert.double(200)
+Traceback (most recent call last):
+  ...
+OverflowError: Overflow
+```
+</TabItem>
+</Tabs>
+
+The first errors occur while converting arguments. In the final call, `std.math.mul` returns `error.Overflow` because 400 does not fit in `u8`.
+
+## Floats
+
+`f16`, `f32` and `f64` convert to `float`. Arguments accept a `float`, an `int`, or any object with `__float__`, such as `fractions.Fraction`. Other objects raise `TypeError: must be real number, not str`.
+
+## Bools
+
+A `bool` result is `True` or `False`. A `bool` argument accepts any object and uses its truthiness, as `if value:` does in Python, so `[]` and `0` are false and `"x"` is true.
+
+## Optionals and void
+
+An optional, `?T`, holds either a `T` or `null`. ZyPy converts `null` to `None` and `None` to `null`. Trailing optional parameters can be left out, as [Functions](/extensions/functions/#default-values) shows.
+
+A function that returns `void` returns `None`.
+
+## Error unions
+
+An error union, `E!T`, can only be a result. A value converts as `T`, and an error raises an exception, as [Errors](/concepts/errors/) explains.
+
+## Tuples
+
+A Zig tuple, a struct with unnamed fields such as `struct { i64, py.Str }`, converts to a Python `tuple`. Arguments must be a `tuple` (or a subclass, such as a named tuple) of exactly that length:
+
+<Tabs syncKey="lang">
+<TabItem label="Zig">
+```zig
+fn swap(pair: struct { i64, py.Str }) struct { py.Str, i64 } {
+    return .{ pair[1], pair[0] };
+}
+```
+</TabItem>
+<TabItem label="Python">
+```python
+>>> convert.swap((1, "a"))
+('a', 1)
+>>> convert.swap((1, "a", 2))
+Traceback (most recent call last):
+  ...
+TypeError: expected tuple of length 2, got 3
+>>> convert.swap([1, "a"])
+Traceback (most recent call last):
+  ...
+TypeError: expected tuple, got list
+```
+</TabItem>
+</Tabs>
+
+For tuples of any length, use `py.Tuple`.
+
+## Structs and dicts
+
+Structs with named fields convert to dicts with one key per field. Inputs can be dicts or other mappings with a `keys` method. ZyPy looks up fields by name and ignores extra keys. If a key is missing, it uses the field default, or `null` for an optional field; otherwise it raises `KeyError`.
+
+<Tabs syncKey="lang">
+<TabItem label="Zig">
+```zig
+const User = struct {
+    name: py.Str,
+    age: u32,
+    email: ?py.Str,
+    active: bool = true,
+};
+
+fn describe(user: User) !py.Str {
+    var buffer: [256]u8 = undefined;
+    const text = try std.mem.print(&buffer, "{s}, {d}, active: {}", .{ try user.name.utf8(), user.age, user.active });
+    return py.Str.init(text);
+}
+
+fn newUser(name: py.Str, age: u32) User {
+    return .{ .name = name, .age = age, .email = null };
+}
+```
+</TabItem>
+<TabItem label="Python">
+```python
+>>> convert.describe({"name": "Ann", "age": 36})
+'Ann, 36, active: true'
+>>> convert.describe({"name": "Ann", "age": 36, "active": False, "extra": 1})
+'Ann, 36, active: false'
+>>> convert.describe({"name": "Ann"})
+Traceback (most recent call last):
+  ...
+KeyError: 'age'
+>>> convert.new_user("Bo", 4)
+{'name': 'Bo', 'age': 4, 'email': None, 'active': True}
+```
+</TabItem>
+</Tabs>
+
+Fields can hold other convertible types, including structs and Python objects. Use `py.Bytes` instead of `[]const u8` in a field: a byte slice alone cannot keep its Python owner alive. ZyPy checks this at compile time.
+
+Structs that declare `pub const class = py.class(...)` are classes, and convert to instances instead of dicts (see [Classes](/extensions/classes/defining/)).
+
+## Enums
+
+A Zig enum converts to a `str` with the tag's name. Arguments accept a `str`, or a member of any `enum.Enum` class, by its name:
+
+<Tabs syncKey="lang">
+<TabItem label="Zig">
+```zig
+const Color = enum { red, green, blue };
+
+fn next(color: Color) Color {
+    return switch (color) {
+        .red => .green,
+        .green => .blue,
+        .blue => .red,
+    };
+}
+```
+</TabItem>
+<TabItem label="Python">
+```python
+>>> convert.next("red")
+'green'
+>>> convert.next("purple")
+Traceback (most recent call last):
+  ...
+ValueError: expected one of 'red', 'green', 'blue', got 'purple'
+>>> convert.next(1)
+Traceback (most recent call last):
+  ...
+TypeError: expected str, got int
+```
+</TabItem>
+</Tabs>
+
+To give Python an `enum.Enum` class for a Zig enum, see [Enums](/extensions/enums/).
+
+## Strings and bytes
+
+`[]const u8` represents bytes, so it converts to Python `bytes`. An argument slice borrows the object's memory until the function returns. A returned slice is copied into a new `bytes` object.
+
+For text, use `py.Str`. `text.utf8()` gives its UTF-8 text, valid while the `str` lives, and `py.Str.init(text)` creates a `str` from UTF-8 text:
+
+```zig
+fn length(text: py.Str) !usize {
+    return (try text.utf8()).len;
+}
+```
+
+```python
+>>> convert.length("héllo")
+6
+>>> convert.length(b"x")
+Traceback (most recent call last):
+  ...
+TypeError: expected str, got bytes
+```
+
+The length is 6 because `é` takes two bytes in UTF-8.
+
+String literals convert to `str` while they retain their literal type, `*const [N:0]u8`. This applies to calls such as `list.append("new")`, arguments such as `.{"x"}`, and module constants such as `.__version__ = "1.0.0"`. If a function declares a `[]const u8` result, it returns `bytes`, even when its return statement contains a string literal.
+
+To create `bytes` without copying, `py.Bytes.alloc(len)` returns a new `bytes` object with its memory, which you fill before returning it:
+
+```zig
+fn reverse(data: []const u8) !py.Bytes {
+    const result = try py.Bytes.alloc(data.len);
+    for (result.data, 0..) |*byte, i| byte.* = data[data.len - 1 - i];
+    return result.bytes;
+}
+```
+
+```python
+>>> convert.reverse(b"abc")
+b'cba'
+>>> convert.reverse(bytearray(b"abc"))
+Traceback (most recent call last):
+  ...
+TypeError: expected bytes, got bytearray
+```
+
+To accept `bytearray`, `memoryview` and other buffers too, take a `py.Buffer(u8)` (see [Buffers](/extensions/buffers/)).
+
+## Slices and arrays
+
+Slices and arrays of other types convert to a `list` when you return or store them, with each item converted. Items of type `u8` give `bytes` instead:
+
+```zig
+fn primes() [4]i64 {
+    return .{ 2, 3, 5, 7 };
+}
+```
+
+```python
+>>> convert.primes()
+[2, 3, 5, 7]
+```
+
+Slices other than `[]const u8` are not accepted as parameters. Use `py.Sequence(T)` to read iterable items, or `py.Buffer(T)` to access buffer memory without copying.
+
+## Types that don't convert
+
+Unions, non-exhaustive enums and pointers other than byte slices and pointers to classes don't convert. Using one is a compile error that suggests what to use instead:
+
+```text
+error: ZyPy can't convert []const i64 (use []const u8, py.Bytes or py.Buffer(T); other pointers convert only to classes)
+```

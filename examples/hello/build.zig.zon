@@ -1,0 +1,10 @@
+.{
+    .name = .hello,
+    .version = "0.1.0",
+    .fingerprint = 0x3610a686e817dc38,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .zypy = .{ .path = "../.." },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}

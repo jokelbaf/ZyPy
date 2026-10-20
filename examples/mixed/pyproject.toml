@@ -1,0 +1,26 @@
+[project]
+name = "mixed"
+# The version comes from build.zig.zon.
+dynamic = ["version"]
+description = "A ZyPy example: a Python package with a submodule written in Zig"
+requires-python = ">=3.13"
+
+[build-system]
+requires = ["zypy>=0.1.0,<0.2"]
+build-backend = "zypy"
+
+[tool.zypy]
+python-source = "python"
+
+[tool.uv]
+# Rebuild the editable install when these files change.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "build.zig" },
+    { file = "build.zig.zon" },
+    { file = "src/**/*.zig" },
+]
+
+[tool.uv.sources]
+# Build with the zypy in this repository.
+zypy = { path = "../.." }

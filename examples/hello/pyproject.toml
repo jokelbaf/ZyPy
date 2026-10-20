@@ -1,0 +1,22 @@
+[project]
+name = "hello"
+version = "0.1.0"
+description = "A ZyPy example: an extension module written in Zig"
+requires-python = ">=3.13"
+
+[build-system]
+requires = ["zypy>=0.1.0,<0.2"]
+build-backend = "zypy"
+
+[tool.uv]
+# Rebuild the editable install when these files change.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "build.zig" },
+    { file = "build.zig.zon" },
+    { file = "src/**/*.zig" },
+]
+
+[tool.uv.sources]
+# Build with the zypy in this repository.
+zypy = { path = "../.." }
