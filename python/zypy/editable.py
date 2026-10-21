@@ -46,7 +46,7 @@ class Manifest:
 
 
 @contextlib.contextmanager
-def staging(output: pathlib.Path) -> collections.abc.Iterator[pathlib.Path]:
+def staging(output: pathlib.Path) -> collections.abc.Generator[pathlib.Path]:
     """Create a temporary build directory under `output` and remove it afterwards."""
     output.mkdir(exist_ok=True)
     _remove_abandoned(output)
@@ -79,7 +79,7 @@ def _locked_directory(output: pathlib.Path) -> tuple[pathlib.Path, int]:
 
 
 @contextlib.contextmanager
-def _locked(directory: pathlib.Path) -> collections.abc.Iterator[None]:
+def _locked(directory: pathlib.Path) -> collections.abc.Generator[None]:
     """Lock `directory`, waiting while another build holds it."""
     descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
     try:
