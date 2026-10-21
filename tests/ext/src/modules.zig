@@ -1,7 +1,7 @@
 const std = @import("std");
 const py = @import("zypy");
 
-const Point = @import("classes.zig").Point;
+const Point = @import("classes/points.zig").Point;
 
 pub const State = struct {
     calls: u64 = 0,
