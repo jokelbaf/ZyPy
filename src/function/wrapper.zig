@@ -11,6 +11,7 @@ const Object = @import("../types/Object.zig");
 const arguments = @import("arguments.zig");
 const Binding = @import("binding.zig").Binding;
 const callable = @import("callable.zig");
+const defaults = @import("defaults.zig");
 const Invocation = @import("invocation.zig").Invocation;
 const checkErrors = @import("invocation.zig").checkErrors;
 const Signature = @import("Signature.zig");
@@ -153,8 +154,8 @@ pub fn Wrapper(comptime name: [:0]const u8, comptime definition: type, comptime 
             }
 
             const value = @field(definition.defaults, param.name.?);
-            if (comptime Signature.isPlain(param.type)) {
-                return comptime Signature.coerce(param.type, value, signature.defaultContext(param));
+            if (comptime defaults.isPlain(param.type)) {
+                return comptime defaults.coerce(param.type, value, signature.defaultContext(param));
             }
             if (@typeInfo(param.type) == .optional and isNull(value)) return null;
 

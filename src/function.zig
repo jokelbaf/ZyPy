@@ -2,6 +2,7 @@ const std = @import("std");
 const c = @import("python");
 
 const callable = @import("function/callable.zig");
+const parameters = @import("function/parameters.zig");
 const Signature = @import("function/Signature.zig");
 const Wrapper = @import("function/wrapper.zig").Wrapper;
 
@@ -56,7 +57,7 @@ pub fn Definition(comptime name: []const u8, comptime entry: anytype) type {
     return struct {
         pub const func = exported.func;
         pub const doc: ?[:0]const u8 = if (@hasField(Options, "doc")) text(context ++ ": .doc", options.doc) else null;
-        pub const params: ?[]const []const u8 = if (@hasField(Options, "params")) Signature.list(context, options.params) else null;
+        pub const params: ?[]const []const u8 = if (@hasField(Options, "params")) parameters.list(context, options.params) else null;
         pub const defaults = if (@hasField(Options, "defaults")) table(context ++ ": .defaults", options.defaults) else .{};
         pub const errors = if (@hasField(Options, "errors")) options.errors else .{};
         pub const release_gil: bool = if (@hasField(Options, "release_gil")) options.release_gil else false;
@@ -90,13 +91,26 @@ pub fn text(comptime context: []const u8, comptime value: anytype) ?[:0]const u8
         return text(context, inner);
     }
 
-    if (!Signature.isText(Value)) @compileError(context ++ " must be a string or null, not " ++ @typeName(Value));
+    if (!isText(Value)) @compileError(context ++ " must be a string or null, not " ++ @typeName(Value));
     const doc: []const u8 = value;
     @setEvalBranchQuota(1_000 + 10 * doc.len);
     // Python reads docstrings as C strings and decodes them as UTF-8.
     if (std.mem.indexOfScalar(u8, doc, 0) != null) @compileError(context ++ " can't contain zero bytes");
     if (!std.unicode.utf8ValidateSlice(doc)) @compileError(context ++ " must be UTF-8 text");
     return std.fmt.comptimePrint("{s}", .{doc});
+}
+
+/// Check whether `T` is a byte slice or a pointer to a byte array.
+pub fn isText(comptime T: type) bool {
+    const pointer = switch (@typeInfo(T)) {
+        .pointer => |info| info,
+        else => return false,
+    };
+    return switch (pointer.size) {
+        .slice => pointer.child == u8,
+        .one => @typeInfo(pointer.child) == .array and @typeInfo(pointer.child).array.child == u8,
+        else => false,
+    };
 }
 
 fn table(comptime context: []const u8, comptime value: anytype) @TypeOf(value) {
