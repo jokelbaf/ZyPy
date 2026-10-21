@@ -289,7 +289,7 @@ const StackIterator = struct {
 };
 ```
 
-List the iterator class in `.classes` too. [Instances and fields](/extensions/classes/instances/) explains `py.Instance(T)` and `py.Owned(T)`.
+List the iterator class in `.classes` too. [Instances and fields](/extensions/classes/instances/) explains `py.Instance(T)` and `py.Owned(T)`. In a `.free_threaded` module, the iterator must also lock the stack, as [Lock other instances](/python/threads/#lock-other-instances) shows.
 
 ## Calls: `__call__`
 

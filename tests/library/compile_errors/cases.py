@@ -22,6 +22,10 @@ MISUSES: typing.Final = (
     "field 'name' would point into a value that the struct can't keep alive (use py.Bytes)",
     "root.Flagged has an owned field but no deinit: a value with an owned field owns what its fromPython returns",
     "expected a method name as a string literal or a py.Str, got [:0]const u8 (use py.Str.init for names",
+    (
+        "py.CriticalSection.begin: expected py.Object, a typed reference such as py.Instance(T), or a C API pointer, "
+        "got comptime_int"
+    ),
 )
 
 BAD_FUNCTIONS: typing.Final = (

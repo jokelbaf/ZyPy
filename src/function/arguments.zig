@@ -2,7 +2,7 @@ const c = @import("python");
 
 const errors = @import("../errors.zig");
 const api = @import("../runtime/api.zig");
-const lock = @import("../runtime/lock.zig");
+const CriticalSection = @import("../runtime/CriticalSection.zig");
 const memory = @import("../runtime/memory.zig");
 const Object = @import("../types/Object.zig");
 
@@ -47,8 +47,8 @@ pub const KeywordArguments = struct {
 
     pub fn init(dict: *c.PyObject) errors.Error!KeywordArguments {
         // PyDict_Next lends its results: keep other threads from changing the dict meanwhile.
-        var section: lock.Section = .{};
-        section.begin(dict, null);
+        var section: CriticalSection = .{};
+        section.begin(.{dict});
         defer section.end();
 
         const count: usize = @intCast(c.PyDict_Size(dict));

@@ -4,7 +4,7 @@ const class = @import("../class.zig");
 const errors = @import("../errors.zig");
 const api = @import("../runtime/api.zig");
 const borrowed = @import("../runtime/borrowed.zig");
-const lock = @import("../runtime/lock.zig");
+const CriticalSection = @import("../runtime/CriticalSection.zig");
 const ownership = @import("../runtime/ownership.zig");
 const Class = @import("../types/class_object.zig").Class;
 const Instance = @import("../types/instance.zig").Instance;
@@ -21,8 +21,8 @@ pub fn copyFrom(comptime T: type, obj: *c.PyObject) errors.Error!T {
     if (!borrowed.enabled) return ownership.lend(value.*);
 
     // Another thread may change the instance: copy it while it's locked, and keep what the copy borrows.
-    var section: lock.Section = .{};
-    section.begin(obj, null);
+    var section: CriticalSection = .{};
+    section.begin(.{obj});
     defer section.end();
 
     try borrowed.keepReferences(value);

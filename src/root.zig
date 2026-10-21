@@ -47,6 +47,10 @@ pub const Kwargs = @import("types/Kwargs.zig");
 pub const allowThreads = @import("runtime/gil.zig").allowThreads;
 pub const Gil = @import("runtime/gil.zig").Gil;
 pub const BorrowScope = @import("runtime/borrowed.zig").BorrowScope;
+/// Lock one or two objects on free-threaded Python. Use this for instances the call does not lock automatically.
+/// Keep the section in a local `var` until `end`. It does nothing on Python builds with the GIL.
+/// For example: `var section: py.CriticalSection = .{}; section.begin(.{ self, other }); defer section.end();`.
+pub const CriticalSection = @import("runtime/CriticalSection.zig");
 pub const class = @import("class.zig").class;
 pub const base_alignment = @import("class.zig").base_alignment;
 pub const property = @import("class/attributes.zig").property;

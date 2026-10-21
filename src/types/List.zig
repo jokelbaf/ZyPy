@@ -4,7 +4,7 @@ const c = @import("python");
 const conversion = @import("../conversion.zig");
 const errors = @import("../errors.zig");
 const api = @import("../runtime/api.zig");
-const lock = @import("../runtime/lock.zig");
+const CriticalSection = @import("../runtime/CriticalSection.zig");
 const Object = @import("Object.zig");
 const reference = @import("reference.zig");
 
@@ -77,8 +77,8 @@ pub fn pop(self: List, comptime T: type, index: usize) errors.Error!T {
 }
 
 fn remove(self: List, index: usize) errors.Error!Object {
-    var section: lock.Section = .{};
-    section.begin(self.obj.ptr, null);
+    var section: CriticalSection = .{};
+    section.begin(.{self});
     defer section.end();
 
     if (index >= self.len()) return errors.raise(.IndexError, if (self.len() == 0) "pop from empty list" else "pop index out of range");

@@ -55,7 +55,7 @@ pub const pages = [_]Page{
         .slug = "threads",
         .title = "Threads and the GIL",
         .description = "Releasing the GIL, using Python from Zig threads, and free-threaded Python.",
-        .items = &.{ "py.allowThreads", "py.Gil", "py.BorrowScope" },
+        .items = &.{ "py.allowThreads", "py.Gil", "py.BorrowScope", "py.CriticalSection" },
     },
     .{
         .slug = "embedding",
@@ -122,6 +122,8 @@ pub const internal_fields = [_][]const u8{
     "py.Gil.state",
     "py.Gil.frame",
     "py.BorrowScope.frame",
+    "py.CriticalSection.raw",
+    "py.CriticalSection.locked",
     "py.Interpreter.frame",
 };
 

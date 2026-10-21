@@ -140,6 +140,12 @@ fn nameLength(record: struct { name: []const u8 }) usize {
     return record.name.len;
 }
 
+fn lockNumber() void {
+    var section: py.CriticalSection = .{};
+    section.begin(.{5});
+    defer section.end();
+}
+
 const module = py.module(.{
     .functions = .{
         .byte_slice = byteSlice,
@@ -161,6 +167,7 @@ const module = py.module(.{
         .name_length = nameLength,
         .use_flagged = useFlagged,
         .method_from_data = methodFromData,
+        .lock_number = lockNumber,
     },
 });
 

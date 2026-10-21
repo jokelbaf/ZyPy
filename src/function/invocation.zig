@@ -6,8 +6,8 @@ const errors = @import("../errors.zig");
 const function = @import("../function.zig");
 const api = @import("../runtime/api.zig");
 const borrowed = @import("../runtime/borrowed.zig");
+const CriticalSection = @import("../runtime/CriticalSection.zig");
 const gil = @import("../runtime/gil.zig");
-const lock = @import("../runtime/lock.zig");
 const ownership = @import("../runtime/ownership.zig");
 const Signature = @import("Signature.zig");
 
@@ -33,7 +33,7 @@ pub fn Invocation(
         values: Callable.Params = undefined,
         converted: usize = 0,
         filled: usize = 0,
-        section: lock.Section = .{},
+        section: CriticalSection = .{},
         frame: borrowed.Frame,
 
         /// Start a call. On free-threaded Python, items it reads from containers stay alive until `end`.
@@ -104,7 +104,7 @@ pub fn Invocation(
                     count += 1;
                 }
             }
-            self.section.begin(objects[0], objects[1]);
+            self.section.begin(.{ objects[0], objects[1] });
         }
 
         /// Borrow the defining module from the receiver or constructed type.

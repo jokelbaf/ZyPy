@@ -190,8 +190,31 @@ ZyPy keeps container items read by a free-threaded call alive until that call re
 ### What stays your job
 
 - Zig globals and other data that several calls share, outside instances and module state. Protect them with `std.Thread.Mutex` or atomics.
-- Instances that a call reaches without a `*T` parameter, such as through `py.Instance(T).value()` or an item read from a container as a pointer.
+- Instances that a call reaches without a `*T` parameter, such as through `py.Instance(T).value()` or an item read from a container as a pointer. Lock them with `py.CriticalSection`, below.
 - Consistency across several calls: two calls that each lock an object can still interleave.
+
+### Lock other instances
+
+Use `py.CriticalSection` for instances that ZyPy does not lock automatically. For example, the iterator from [Special methods](/extensions/classes/special-methods/#iteration) must lock its stack before reading it: concurrent pushes could move the items in memory.
+
+```zig
+fn next(self: py.Instance(StackIterator)) ?i64 {
+    const iterator = self.value();
+    const stack = iterator.stack.get();
+
+    var section: py.CriticalSection = .{};
+    section.begin(.{ self, stack });
+    defer section.end();
+
+    const items = stack.value().items.items;
+    if (iterator.index >= items.len) return null;
+
+    defer iterator.index += 1;
+    return items[iterator.index];
+}
+```
+
+Pass one or two objects to `begin` and keep the section in a local `var` until `end`. Lock the iterator and stack together, even though ZyPy already locked the iterator for this call. Python may release outer locks while waiting for another lock, so separate nested sections are not enough. On Python builds with the GIL, the section does nothing.
 
 ### Borrow scopes
 

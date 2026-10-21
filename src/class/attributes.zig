@@ -6,7 +6,7 @@ const conversion = @import("../conversion.zig");
 const errors = @import("../errors.zig");
 const function = @import("../function.zig");
 const borrowed = @import("../runtime/borrowed.zig");
-const lock = @import("../runtime/lock.zig");
+const CriticalSection = @import("../runtime/CriticalSection.zig");
 const ownership = @import("../runtime/ownership.zig");
 const Object = @import("../types/Object.zig");
 
@@ -100,9 +100,9 @@ fn FieldAccess(comptime scope: function.Scope, comptime field: [:0]const u8, com
         const writable = is_writable;
 
         fn get(self: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) [*c]c.PyObject {
-            var section: lock.Section = .{};
+            var section: CriticalSection = .{};
             defer section.end();
-            if (runs_without_gil) section.begin(self.?, null);
+            if (runs_without_gil) section.begin(.{self});
 
             const obj = conversion.toPythonHeld(@field(class.valueOf(T, self.?), field)) catch return null;
             return obj.ptr;
@@ -124,9 +124,9 @@ fn FieldAccess(comptime scope: function.Scope, comptime field: [:0]const u8, com
         }
 
         fn replace(self: *c.PyObject, value: Field) Field {
-            var section: lock.Section = .{};
+            var section: CriticalSection = .{};
             defer section.end();
-            if (runs_without_gil) section.begin(self, null);
+            if (runs_without_gil) section.begin(.{self});
 
             const slot = &@field(class.valueOf(T, self), field);
             const old = slot.*;

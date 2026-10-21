@@ -3,7 +3,7 @@ const c = @import("python");
 const conversion = @import("../conversion.zig");
 const errors = @import("../errors.zig");
 const api = @import("../runtime/api.zig");
-const lock = @import("../runtime/lock.zig");
+const CriticalSection = @import("../runtime/CriticalSection.zig");
 const ownership = @import("../runtime/ownership.zig");
 const Object = @import("Object.zig");
 const reference = @import("reference.zig");
@@ -160,8 +160,8 @@ pub fn Iterator(comptime K: type, comptime V: type) type {
         }
 
         fn read(self: *Self, dict: *c.PyObject) errors.Error!?struct { Object, Object } {
-            var section: lock.Section = .{};
-            section.begin(dict, null);
+            var section: CriticalSection = .{};
+            section.begin(.{dict});
             defer section.end();
 
             if (self.size == null) self.size = c.PyDict_Size(dict);
