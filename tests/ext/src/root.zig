@@ -10,6 +10,7 @@ const lifetimes = @import("classes/lifetimes.zig");
 const operators = @import("classes/operators.zig");
 const points = @import("classes/points.zig");
 const containers = @import("containers.zig");
+const enums = @import("enums.zig");
 const functions = @import("functions.zig");
 const modules = @import("modules.zig");
 const values = @import("values.zig");
@@ -22,7 +23,7 @@ pub const module = py.module(.{
         .MAX_SIZE = 4096,
         .LIMITS = .{ 0, 10 },
         .ORIGIN = points.Point{ .x = 0, .y = 0 },
-        .DEFAULT_LEVEL = values.Level.medium,
+        .DEFAULT_LEVEL = enums.Level.medium,
     },
     .exceptions = .{ .ParseError = modules.SyntaxProblem, .StrictError = modules.StrictError, .PlainError = modules.PlainError },
     .classes = .{
@@ -60,7 +61,7 @@ pub const module = py.module(.{
         .OtherBlank = lifetimes.OtherBlank,
         .Courier = callbacks.Courier,
     },
-    .enums = .{ .Level = values.Level, .Direction = values.Direction, .Wide = values.Wide },
+    .enums = .{ .Level = enums.Level, .Direction = enums.Direction, .Wide = enums.Wide },
     .submodules = .{ .sub = modules.sub, .shadows = modules.shadows },
     .state = modules.State,
     .subinterpreters = true,
@@ -83,7 +84,7 @@ pub const module = py.module(.{
         .fail = values.fail,
         .identity = values.identity,
         .flagged = values.flagged,
-        .quoted_tag = values.quotedTag,
+        .quoted_tag = enums.quotedTag,
         .is_none = values.isNone,
         .as_int = values.asInt,
         .str_len = values.strLen,
@@ -94,19 +95,19 @@ pub const module = py.module(.{
         .new_user = values.newUser,
         .call_user = values.callUser,
         .job_total = values.jobTotal,
-        .next_color = values.next_color_function,
-        .color_names = values.colorNames,
+        .next_color = enums.next_color_function,
+        .color_names = enums.colorNames,
         .str_array = values.strArray,
         .release_array = values.releaseArray,
         .record_value = values.recordValue,
         .call_record = values.callRecord,
         .call_wrapped = values.callWrapped,
-        .raise_level = values.raiseLevel,
-        .turn = values.turn_function,
-        .levels = values.levels,
-        .call_level = values.callLevel,
-        .wide_value = values.wideValue,
-        .wide_member = values.wideMember,
+        .raise_level = enums.raiseLevel,
+        .turn = enums.turn_function,
+        .levels = enums.levels,
+        .call_level = enums.callLevel,
+        .wide_value = enums.wideValue,
+        .wide_member = enums.wideMember,
         .quoted_doc = py.function(values.nothing, .{ .doc = "Say \"hi\".\n\nA backslash \\ and a final \"" }),
         .unicode_default = py.function(values.unicodeDefault, .{ .params = &.{"text"}, .defaults = .{ .text = "h\u{e9}llo \u{2713} \u{1d11e}\n" } }),
 
