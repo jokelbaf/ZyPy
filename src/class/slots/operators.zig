@@ -9,6 +9,7 @@ const Object = @import("../../types/Object.zig");
 const Methods = @import("../slots.zig").Methods;
 const methodEntry = @import("../slots.zig").methodEntry;
 const slot = @import("../slots.zig").slot;
+const comparisons = @import("comparisons.zig");
 
 const BinaryOp = struct {
     forward: [:0]const u8,
@@ -68,8 +69,6 @@ const unary_ops = [_]UnaryOp{
     .{ .method = "__index__", .slot = c.Py_nb_index },
 };
 
-const comparisons = [_][]const u8{ "__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__" };
-
 /// Get the forward and reflected methods sharing a binary operator slot, or `null` for other methods.
 pub fn forms(comptime method: []const u8) ?[]const []const u8 {
     for (binary_ops ++ .{power_op}) |op| {
@@ -83,7 +82,7 @@ pub fn forms(comptime method: []const u8) ?[]const []const u8 {
 /// Check whether `method` takes another operand, such as `__add__` or `__eq__`.
 pub fn isBinary(comptime method: []const u8) bool {
     if (forms(method) != null) return true;
-    for (comparisons) |name| {
+    for (comparisons.methods) |name| {
         if (std.mem.eql(u8, method, name)) return true;
     }
     return isInPlace(method);
@@ -101,7 +100,6 @@ pub fn isInPlace(comptime method: []const u8) bool {
 pub fn Operators(comptime Special: type) type {
     const context = Special.context;
     const Class = Special.scope.Class.?;
-    const compares = definesAny(Special, &comparisons);
 
     return struct {
         pub const slots: []const c.PyType_Slot = blk: {
@@ -109,13 +107,6 @@ pub fn Operators(comptime Special: type) type {
             for (unary_ops) |op| {
                 if (Special.has(op.method)) list = list ++ .{slot(op.slot, &Unary(op.method).call)};
             }
-            if (Special.has("__hash__")) {
-                list = list ++ .{slot(c.Py_tp_hash, &hash)};
-            } else if (compares and !Special.has("__eq__")) {
-                // Without __eq__, comparisons don't change equality, so keep the identity hash.
-                list = list ++ .{slot(c.Py_tp_hash, &identityHash)};
-            }
-            if (compares) list = list ++ .{slot(c.Py_tp_richcompare, &richCompare)};
             if (Special.has("__bool__")) list = list ++ .{slot(c.Py_nb_bool, &truth)};
             for (binary_ops) |op| {
                 if (Special.has(op.forward) or Special.has(op.reflected)) list = list ++ .{slot(op.slot, &Binary(op).call)};
@@ -245,52 +236,6 @@ pub fn Operators(comptime Special: type) type {
             };
         }
 
-        fn richCompare(self: [*c]c.PyObject, other: [*c]c.PyObject, op: c_int) callconv(.c) [*c]c.PyObject {
-            return slotResult(compare(self.?, other.?, op));
-        }
-
-        fn compare(self: *c.PyObject, other: *c.PyObject, op: c_int) errors.Error!?Object {
-            return switch (op) {
-                c.Py_EQ => callBinary("__eq__", self, other),
-                c.Py_NE => notEqual(self, other),
-                c.Py_LT => callBinary("__lt__", self, other),
-                c.Py_LE => callBinary("__le__", self, other),
-                c.Py_GT => callBinary("__gt__", self, other),
-                c.Py_GE => callBinary("__ge__", self, other),
-                else => null,
-            };
-        }
-
-        fn notEqual(self: *c.PyObject, other: *c.PyObject) errors.Error!?Object {
-            if (comptime Special.has("__ne__") or !Special.has("__eq__")) return callBinary("__ne__", self, other);
-            return negate(try callBinary("__eq__", self, other));
-        }
-
-        fn callBinary(comptime method: [:0]const u8, self: *c.PyObject, other: *c.PyObject) errors.Error!?Object {
-            return callOperator(Special, method, self, other, .{});
-        }
-
-        fn negate(result: ?Object) errors.Error!?Object {
-            const obj = result orelse return null;
-            defer obj.deinit();
-
-            const is_true = c.PyObject_IsTrue(obj.ptr);
-            try errors.check(is_true);
-            return try conversion.toPython(is_true == 0);
-        }
-
-        fn hash(self: [*c]c.PyObject) callconv(.c) c.Py_hash_t {
-            const value = Special.callValue("__hash__", 0, self.?, .{}) catch return -1;
-            if (@typeInfo(@TypeOf(value)) != .int) @compileError(context ++ ": __hash__ must return an integer");
-            const result = hashOf(value);
-            // -1 means an error to CPython.
-            return if (result == -1) -2 else result;
-        }
-
-        fn identityHash(self: [*c]c.PyObject) callconv(.c) c.Py_hash_t {
-            return api.typeSlot(c.hashfunc, &c.PyBaseObject_Type, "tp_hash", c.Py_tp_hash).?(self);
-        }
-
         fn truth(self: [*c]c.PyObject) callconv(.c) c_int {
             const value = Special.callValue("__bool__", 0, self.?, .{}) catch return -1;
             if (@TypeOf(value) != bool) @compileError(context ++ ": __bool__ must return bool");
@@ -299,7 +244,8 @@ pub fn Operators(comptime Special: type) type {
     };
 }
 
-fn callOperator(
+/// Call operator `method` with `other` and an optional modulo in `extra`. Return `null` for `NotImplemented`.
+pub fn callOperator(
     comptime Special: type,
     comptime method: [:0]const u8,
     self: *c.PyObject,
@@ -352,7 +298,8 @@ fn isSubtype(b: *c.PyObject, a: *c.PyObject) bool {
     return api.typeOf(b) != api.typeOf(a) and c.PyType_IsSubtype(api.typeOf(b), api.typeOf(a)) != 0;
 }
 
-fn slotResult(result: errors.Error!?Object) [*c]c.PyObject {
+/// Convert an operator result for its Python slot, using `NotImplemented` for `null`.
+pub fn slotResult(result: errors.Error!?Object) [*c]c.PyObject {
     const obj = result catch return null;
     return if (obj) |found| found.ptr else notImplemented();
 }
@@ -361,23 +308,6 @@ fn hasSlot(comptime op: BinaryOp, obj: *c.PyObject, func: anytype) bool {
     if (api.limited) return c.PyType_GetSlot(api.typeOf(obj), op.slot) == @as(*const anyopaque, func);
     const number = api.typeOf(obj).*.tp_as_number orelse return false;
     return @field(number.*, op.field) == @as(@FieldType(c.PyNumberMethods, op.field), func);
-}
-
-fn definesAny(comptime Special: type, comptime methods: []const []const u8) bool {
-    for (methods) |method| {
-        if (Special.has(method)) return true;
-    }
-    return false;
-}
-
-fn hashOf(value: anytype) c.Py_hash_t {
-    const V = @TypeOf(value);
-    const fits = std.math.minInt(V) >= std.math.minInt(c.Py_hash_t) and std.math.maxInt(V) <= std.math.maxInt(c.Py_hash_t);
-    if (comptime fits) return value;
-
-    const raw: @Int(.unsigned, @bitSizeOf(V)) = @bitCast(value);
-    const truncated: @Int(.unsigned, @bitSizeOf(c.Py_hash_t)) = @truncate(raw);
-    return @bitCast(truncated);
 }
 
 fn notImplemented() *c.PyObject {

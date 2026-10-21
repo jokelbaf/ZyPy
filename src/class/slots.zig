@@ -10,6 +10,7 @@ const syntax = @import("../syntax.zig");
 const Object = @import("../types/Object.zig");
 const Attributes = @import("slots/attributes.zig").Attributes;
 const Buffers = @import("slots/buffers.zig").Buffers;
+const Comparisons = @import("slots/comparisons.zig").Comparisons;
 const Containers = @import("slots/containers.zig").Containers;
 const Descriptors = @import("slots/descriptors.zig").Descriptors;
 const operators = @import("slots/operators.zig");
@@ -155,9 +156,9 @@ pub fn Slots(comptime scope: function.Scope, comptime methods: anytype) type {
     const Special = Methods(scope, methods);
 
     return struct {
-        pub const list: []const c.PyType_Slot = Operators(Special).slots ++ Containers(Special).slots ++
-            Buffers(Special).slots ++ Attributes(Special).slots ++ Descriptors(Special).slots ++
-            CallSlots(Special).slots ++ Finalizer(Special).slots;
+        pub const list: []const c.PyType_Slot = Operators(Special).slots ++ Comparisons(Special).slots ++
+            Containers(Special).slots ++ Buffers(Special).slots ++ Attributes(Special).slots ++
+            Descriptors(Special).slots ++ CallSlots(Special).slots ++ Finalizer(Special).slots;
         /// Methods that override slot wrappers which would call the wrong Zig method.
         pub const visible: []const c.PyMethodDef = Operators(Special).methods ++ Attributes(Special).methods ++
             Finalizer(Special).methods;
