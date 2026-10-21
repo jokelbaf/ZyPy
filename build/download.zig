@@ -15,7 +15,10 @@ pub fn main(init: std.process.Init) !void {
     const archive = try std.fmt.allocPrint(arena, "{s}.tar.gz", .{sha256});
 
     if (!try matches(io, cache, archive, sha256)) {
-        try download(init, cache, archive, url);
+        download(init, cache, archive, url) catch |err| switch (err) {
+            error.DownloadFailed => std.process.exit(1),
+            else => |other| return other,
+        };
         if (!try matches(io, cache, archive, sha256)) {
             cache.deleteFile(io, archive) catch {};
             std.process.fatal("{s} doesn't have the SHA-256 {s}", .{ url, sha256 });
@@ -72,9 +75,13 @@ fn download(init: std.process.Init, cache: Io.Dir, archive: []const u8, url: []c
     var buffer: [64 * 1024]u8 = undefined;
     var writer = file.file.writer(io, &buffer);
     const result = client.fetch(.{ .location = .{ .url = url }, .response_writer = &writer.interface }) catch |err| {
-        std.process.fatal("can't download {s}: {t}", .{ url, err });
+        std.log.err("can't download {s}: {t}", .{ url, err });
+        return error.DownloadFailed;
     };
-    if (result.status != .ok) std.process.fatal("can't download {s}: HTTP {d}", .{ url, @backingInt(result.status) });
+    if (result.status != .ok) {
+        std.log.err("can't download {s}: HTTP {d}", .{ url, @backingInt(result.status) });
+        return error.DownloadFailed;
+    }
 
     try writer.interface.flush();
     try file.replace(io);
