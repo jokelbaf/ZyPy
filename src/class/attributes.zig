@@ -36,28 +36,8 @@ pub fn property(comptime get: anytype, comptime options: anytype) Property(@Type
 
 /// Field and property accessors for a class, including an optional `__dict__`.
 pub fn GetSet(comptime scope: function.Scope, comptime fields: anytype, comptime properties: anytype, comptime dict: bool) type {
-    const T = scope.Class.?;
-    const context = "'" ++ scope.class_name ++ "'";
     const field_names = @typeInfo(@TypeOf(fields)).@"struct".field_names;
     const property_names = @typeInfo(@TypeOf(properties)).@"struct".field_names;
-
-    for (field_names) |field| {
-        if (!@hasField(T, field)) {
-            @compileError(context ++ ": .fields has '" ++ field ++ "', which isn't a field of " ++ @typeName(T));
-        }
-        if (dict and std.mem.eql(u8, field, "__dict__")) {
-            @compileError(context ++ ": the class has .dict, so it can't have a field named '__dict__'");
-        }
-        for (property_names) |prop| {
-            if (std.mem.eql(u8, field, prop)) @compileError(context ++ ": '" ++ field ++ "' is both a field and a property");
-        }
-    }
-
-    for (property_names) |prop| {
-        if (dict and std.mem.eql(u8, prop, "__dict__")) {
-            @compileError(context ++ ": the class has .dict, so it can't have a property named '__dict__'");
-        }
-    }
     const extra = @intFromBool(dict);
 
     return struct {

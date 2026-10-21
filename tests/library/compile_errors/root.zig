@@ -365,3 +365,41 @@ const BadEnumOption = enum {
     a,
     pub const class = py.enumClass(.{ .docs = "x" });
 };
+
+const SpecialField = struct {
+    __len__: i64,
+    pub const class = py.class(.{ .fields = .{ .__len__ = .read_write }, .methods = .{ .__len__ = length } });
+    fn length(_: *const SpecialField) i64 {
+        return 10;
+    }
+};
+
+const DictMethod = struct {
+    pub const class = py.class(.{ .dict = true, .methods = .{ .__dict__ = contents } });
+    fn contents(_: *const DictMethod) i64 {
+        return 0;
+    }
+};
+
+const Twice = struct {
+    size: i64,
+    pub const class = py.class(.{ .fields = .{ .size = .read_only }, .methods = .{ .size = getSize } });
+    fn getSize(self: *const Twice) i64 {
+        return self.size;
+    }
+};
+
+const Keyworded = struct {
+    pub const class = py.class(.{ .methods = .{ .class = answer } });
+    fn answer(_: *const Keyworded) i64 {
+        return 42;
+    }
+};
+
+const Spaced = struct {
+    x: i64,
+    pub const class = py.class(.{ .properties = .{ .@"some thing" = thing } });
+    fn thing(self: *const Spaced) i64 {
+        return self.x;
+    }
+};

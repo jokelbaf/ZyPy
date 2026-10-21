@@ -4,6 +4,7 @@ const constructor = @import("class/constructor.zig");
 const instances = @import("class/instances.zig");
 const layout = @import("class/layout.zig");
 const lifecycle = @import("class/lifecycle.zig");
+const members = @import("class/members.zig");
 const slots = @import("class/slots.zig");
 const value = @import("class/value.zig");
 const function = @import("function.zig");
@@ -31,6 +32,7 @@ pub const constructIn = value.constructIn;
 pub const receiverKind = value.receiverKind;
 pub const receiver = value.receiver;
 pub const receivesClass = value.receivesClass;
+pub const checkMembers = members.check;
 
 const Option = enum { doc, base, fields, methods, properties, init, subclassable, weak_references, dict };
 

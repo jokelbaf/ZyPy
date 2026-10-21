@@ -139,6 +139,23 @@ BAD_MODULES: typing.Final = (
         "'Holder': field 'obj' holds Python objects, so declare it as py.Owned(py.Object), which keeps a reference",
     ),
     (".{ .classes = .{ .NoField = NoField } }", "'NoField': .fields has 'z', which isn't a field of root.NoField"),
+    (
+        ".{ .classes = .{ .SpecialField = SpecialField } }",
+        "'SpecialField': '__len__' is the name of a special method, so it can't be a field",
+    ),
+    (
+        ".{ .classes = .{ .DictMethod = DictMethod } }",
+        "'DictMethod': the class has .dict, so it can't have a method named '__dict__'",
+    ),
+    (".{ .classes = .{ .Twice = Twice } }", "'Twice': 'size' is both a field and a method"),
+    (
+        ".{ .classes = .{ .Keyworded = Keyworded } }",
+        "'Keyworded': .methods: 'class' is a Python keyword, so it can't be a method name",
+    ),
+    (
+        ".{ .classes = .{ .Spaced = Spaced } }",
+        "'Spaced': .properties: 'some thing' isn't a valid Python attribute name (use ASCII letters, digits and _)",
+    ),
     (".{ .classes = .{ .Endless = Endless } }", "'Endless': __next__ must return an optional, such as ?i64"),
     (".{ .classes = .{ .BadDeinit = BadDeinit } }", "'BadDeinit': deinit must take only the instance"),
     (".{ .classes = .{ .ViewHolder = ViewHolder } }", "can only hold Python objects and plain values, not views"),

@@ -43,13 +43,7 @@ pub fn Type(comptime T: type, comptime Module: type, comptime name: [:0]const u8
     const regular: []const [:0]const u8 = blk: {
         var list: []const [:0]const u8 = &.{};
         for (@typeInfo(@TypeOf(definition.methods)).@"struct".field_names) |method| {
-            if (slots.isSpecial(context, method)) continue;
-            for (Attributes.names) |attribute| {
-                if (std.mem.eql(u8, method, attribute)) {
-                    @compileError(context ++ ": '" ++ method ++ "' is both a method and a field or property");
-                }
-            }
-            list = list ++ .{method};
+            if (!slots.isSpecial(context, method)) list = list ++ .{method};
         }
         break :blk list;
     };

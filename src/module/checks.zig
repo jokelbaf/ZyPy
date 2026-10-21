@@ -72,6 +72,7 @@ pub fn checkClasses(comptime classes: anytype) void {
             if (@field(classes, earlier) == T) @compileError("py.module: .classes lists " ++ @typeName(T) ++ " twice");
         }
         if (class.Definition(T).Base) |Base| checkBase(classes, name, i, Base);
+        class.checkMembers(T, "'" ++ name ++ "'");
     }
 }
 

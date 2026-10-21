@@ -126,6 +126,12 @@ pub fn isSpecial(comptime context: []const u8, comptime method: []const u8) bool
     return std.meta.stringToEnum(Name, method) != null;
 }
 
+/// Check whether `name` is a special method name, such as `__len__` or `__init__`, supported or not.
+pub fn isSpecialName(comptime name: []const u8) bool {
+    const others = unsupported ++ [_][]const u8{ "__getattribute__", "__init__", "__new__" };
+    return std.meta.stringToEnum(Name, name) != null or syntax.contains(&others, name);
+}
+
 /// Get the special methods that share type slots with `method`, `method` included.
 pub fn sharing(comptime method: []const u8) []const []const u8 {
     for (shared) |group| {

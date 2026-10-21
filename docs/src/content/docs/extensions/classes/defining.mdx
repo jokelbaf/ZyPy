@@ -95,6 +95,8 @@ Point(2, 0)
 
 The field name in `.classes` becomes the Python class name, so this example creates `geometry.Point`. `__repr__` controls how instances appear as text. See [Special methods](/extensions/classes/special-methods/) for it and other methods with double-underscore names.
 
+Names in `.fields`, `.properties`, and `.methods` must be valid Python identifiers and unique across those sections. Fields and properties cannot use special method names such as `__len__`. ZyPy checks these rules at compile time.
+
 ## Constructors
 
 Calling the Python class runs a constructor that returns a Zig struct value. ZyPy chooses the constructor in this order:
