@@ -1,5 +1,9 @@
+import collections.abc
+import operator
 import sys
 import types
+import typing
+import weakref
 
 import pytest
 
@@ -78,3 +82,29 @@ def test_borrow_scopes(ext: types.ModuleType) -> None:
     assert counts[0] == before
     assert counts[1] == (before + 1 if helpers.FREE_THREADED else before)
     assert sys.getrefcount(item) == before
+
+
+def check_parcel_survives(ext: types.ModuleType, read: collections.abc.Callable[[typing.Any], object]) -> None:
+    """Check that reading a parcel keeps its item alive if the label callback replaces the parcel."""
+    item = helpers.Item()
+    reference = weakref.ref(item)
+    alive: list[bool] = []
+
+    def replace() -> str:
+        """Replace the parcel while its item is still needed for conversion."""
+        courier.parcel = {"label": {"function": str}, "item": None}
+        alive.append(reference() is not None)
+        return "label"
+
+    courier = ext.Courier({"label": {"function": replace}, "item": item})
+    del item
+
+    assert read(courier) == {"label": "label", "item": reference()}
+    assert alive == [True]
+    assert reference() is None
+
+
+def test_conversions_that_replace_fields(ext: types.ModuleType) -> None:
+    """Check that field and method results survive Python callbacks during conversion."""
+    check_parcel_survives(ext, operator.attrgetter("parcel"))
+    check_parcel_survives(ext, operator.methodcaller("parcel_copy"))

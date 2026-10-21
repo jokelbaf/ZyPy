@@ -124,7 +124,7 @@ fn FieldAccess(comptime scope: function.Scope, comptime field: [:0]const u8, com
             defer section.end();
             if (runs_without_gil) section.begin(self.?, null);
 
-            const obj = conversion.toPython(@field(class.valueOf(T, self.?), field)) catch return null;
+            const obj = conversion.toPythonHeld(@field(class.valueOf(T, self.?), field)) catch return null;
             return obj.ptr;
         }
 

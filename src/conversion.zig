@@ -82,7 +82,19 @@ pub fn intoPython(value: anytype) errors.Error!Object {
     }
 
     defer ownership.deinit(value);
-    return toPython(value);
+    return toPythonHeld(value);
+}
+
+/// Convert `value` to an owned Python object, keeping borrowed references alive during conversion.
+pub fn toPythonHeld(value: anytype) errors.Error!Object {
+    const T = @TypeOf(value);
+    // Reference conversion cannot call Python; owning values cannot be safely retained.
+    const Reference = if (@typeInfo(T) == .optional) @typeInfo(T).optional.child else T;
+    if (comptime ownership.isReference(Reference) or ownership.ownsResources(T)) return toPython(value);
+
+    const held = ownership.retain(ownership.lend(value));
+    defer ownership.deinit(held);
+    return toPython(held);
 }
 
 /// Convert an owned container item to `T`, consuming its reference.
