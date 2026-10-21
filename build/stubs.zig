@@ -2,7 +2,7 @@ const std = @import("std");
 const py = @import("zypy");
 const extension = @import("extension");
 
-/// Build the test extension in fast mode and print call timings.
+/// Prevent `py.exportModule` from exporting an extension while this program generates stubs.
 pub const zypy_stub_generator = true;
 
 pub fn main(init: std.process.Init) !void {

@@ -17,7 +17,7 @@ pub const Options = struct {
     optimize: std.lang.Optimize,
     /// The Python installation to build against. Defaults to `zypy.findPython`.
     python: ?Python = null,
-    /// Ship Python with the program. Set `.python` to `bundledPython`.
+    /// Ship Python with the program, from `zypy.bundledPython`. Leave `.python` unset.
     bundle_python: bool = false,
 };
 
