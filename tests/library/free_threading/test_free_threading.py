@@ -19,6 +19,7 @@ CHECKS: typing.Final = (
     library.free_threading.checks.counter_calls,
     library.free_threading.checks.module_state,
     library.free_threading.checks.bag_appends,
+    library.free_threading.checks.bag_iteration,
     library.free_threading.checks.stack_appends_and_pops,
     library.free_threading.checks.field_writes,
     library.free_threading.checks.property_writes,

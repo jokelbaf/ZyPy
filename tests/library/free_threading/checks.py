@@ -73,6 +73,22 @@ def bag_appends() -> None:
     assert bag.total() == ROUNDS * sum(range(THREADS))
 
 
+def bag_iteration() -> None:
+    """Iterate over a Bag in some threads while others append to it."""
+    bag = extension().Bag()
+
+    def work(index: int) -> None:
+        """Append in even threads; in odd ones, check the items every tenth round."""
+        for i in range(ROUNDS):
+            if index % 2 == 0:
+                bag.append(index)
+            elif i % 10 == 0:
+                assert all(0 <= item < THREADS for item in bag)
+
+    in_threads(work)
+    assert len(bag) == (THREADS + 1) // 2 * ROUNDS
+
+
 def stack_appends_and_pops() -> None:
     """Check concurrent inherited appends and custom pops on a Zig subclass."""
     stack = extension().Stack()

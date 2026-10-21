@@ -114,6 +114,10 @@ pub fn pointPair() struct { Point, Point } {
 }
 
 pub fn shift(p: py.Instance(Point), dx: f64) py.Instance(Point) {
+    var section: py.CriticalSection = .{};
+    section.begin(.{p});
+    defer section.end();
+
     p.value().x += dx;
     return p;
 }
@@ -335,12 +339,19 @@ pub const BagIterator = struct {
 
     pub const class = py.class(.{ .init = null, .methods = .{ .__next__ = next } });
 
-    fn next(self: *BagIterator) ?i64 {
-        const items = self.bag.get().value().items.items;
-        if (self.index >= items.len) return null;
+    fn next(self: py.Instance(BagIterator)) ?i64 {
+        const iterator = self.value();
+        const bag = iterator.bag.get();
+        // Lock the bag together with its iterator because concurrent appends can move the items.
+        var section: py.CriticalSection = .{};
+        section.begin(.{ self, bag });
+        defer section.end();
 
-        defer self.index += 1;
-        return items[self.index];
+        const items = bag.value().items.items;
+        if (iterator.index >= items.len) return null;
+
+        defer iterator.index += 1;
+        return items[iterator.index];
     }
 };
 
@@ -479,6 +490,10 @@ pub fn buildShape(cls: py.Class(Shape), name: py.Str, sides: u32) !py.Instance(S
 
 /// Rename a shape, which may be an instance of a subclass, and return it.
 pub fn relabel(shape: py.Instance(Shape), name: py.Str) py.Instance(Shape) {
+    var section: py.CriticalSection = .{};
+    section.begin(.{shape});
+    defer section.end();
+
     shape.value().name.set(name);
     return shape;
 }
