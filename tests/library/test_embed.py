@@ -12,14 +12,15 @@ import zypy.zig
 EMBED_TESTS: typing.Final = helpers.REPO / "tests" / "embed"
 
 
-def test_embed(tmp_path: pathlib.Path) -> None:
-    """Check embedded Python and Zig module imports, including from another thread."""
+@pytest.mark.parametrize("python", [f"-Dpython={sys.executable}", "-Dbundle-python"])
+def test_embed(tmp_path: pathlib.Path, python: str) -> None:
+    """Check that `zig build run` supports embedded Python and imports from Zig threads."""
     project = helpers.copy_example("embed", tmp_path)
-    helpers.run(*zypy.zig.command(), "build", f"-Dpython={sys.executable}", cwd=project)
+    command = [*zypy.zig.command(), "build", "run", python, "--", "one", "--two"]
+    environment = {name: value for name, value in os.environ.items() if not name.startswith(("PYTHON", "VIRTUAL_ENV"))}
+    result = subprocess.run(command, cwd=project, env=environment, capture_output=True, text=True, check=False)
 
-    program = project / "zig-out" / "bin" / "embed"
-    result = subprocess.run([program, "one", "--two"], capture_output=True, text=True, check=True)
-
+    assert result.returncode == 0, result.stderr
     assert result.stderr == 'json.dumps: {"name": "Ann", "scores": [9.5, 7.0]}\npy.eval: 42\n'
     assert result.stdout == (
         "sys.argv: ['one', '--two']\ndemo.add: 5\ndemo.Greeter: Hello, Ann!\nfrom a Zig thread: Hello, Bo!\n"
