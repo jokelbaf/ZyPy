@@ -3,6 +3,7 @@ const options = @import("zypy_options");
 
 const function = @import("function.zig");
 const annotation = @import("stubs/annotations.zig").annotation;
+const classes = @import("stubs/classes.zig");
 const declarations = @import("stubs/declarations.zig");
 const syntax = @import("syntax.zig");
 
@@ -209,9 +210,9 @@ fn definedNames(comptime Module: type) []const []const u8 {
 }
 
 fn fileNames(comptime Module: type) []const []const u8 {
-    const classes = Module.contents.classes;
+    const defined = Module.contents.classes;
     var names = definedNames(Module);
-    for (@typeInfo(@TypeOf(classes)).@"struct".field_names) |name| names = names ++ declarations.members(@field(classes, name));
+    for (@typeInfo(@TypeOf(defined)).@"struct".field_names) |name| names = names ++ classes.members(@field(defined, name));
     return names;
 }
 
@@ -237,7 +238,7 @@ fn writeModule(comptime Module: type, comptime context: Context, w: *Writer) !vo
 
     inline for (@typeInfo(@TypeOf(contents.classes)).@"struct".field_names) |name| {
         try sections.start(.definition);
-        try declarations.writeClass(@field(contents.classes, name), name, Module, context, w);
+        try classes.write(@field(contents.classes, name), name, Module, context, w);
     }
 
     inline for (@typeInfo(@TypeOf(contents.functions)).@"struct".field_names) |name| {
