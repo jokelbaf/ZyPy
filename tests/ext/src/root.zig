@@ -1,6 +1,7 @@
 const py = @import("zypy");
 
 const buffers = @import("buffers.zig");
+const callbacks = @import("callbacks.zig");
 const calls = @import("calls.zig");
 const classes = @import("classes.zig");
 const containers = @import("containers.zig");
@@ -52,6 +53,7 @@ pub const module = py.module(.{
         .DoubleCountdown = classes.DoubleCountdown,
         .Blank = classes.Blank,
         .OtherBlank = classes.OtherBlank,
+        .Courier = callbacks.Courier,
     },
     .enums = .{ .Level = values.Level, .Direction = values.Direction, .Wide = values.Wide },
     .submodules = .{ .sub = modules.sub, .shadows = modules.shadows },
@@ -246,6 +248,8 @@ pub const module = py.module(.{
         .releases = classes.releases,
         .blank_address = classes.blankAddress,
         .new_blank = classes.newBlank,
+
+        .hold_parcel = callbacks.holdParcel,
 
         .count_calls = modules.countCalls,
         .state_version = modules.stateVersion,

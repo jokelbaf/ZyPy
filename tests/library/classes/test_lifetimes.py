@@ -74,6 +74,30 @@ def test_reference_cycles(ext: types.ModuleType) -> None:
     assert calls == [1]
 
 
+def test_fields_with_custom_conversions(ext: types.ModuleType) -> None:
+    """Check cleanup and cycle collection for fields with a custom toPython conversion."""
+
+    def label() -> str:
+        """Return the parcel's label."""
+        return "label"
+
+    before = sys.getrefcount(label)
+    for _ in range(1000):
+        ext.Courier({"label": {"function": label}, "item": None})
+        ext.hold_parcel({"label": {"function": label}, "item": None})
+
+    assert sys.getrefcount(label) == before
+
+    courier = ext.Courier({"label": {"function": label}, "item": None})
+    courier.parcel = {"label": {"function": courier.parcel_copy}, "item": None}
+    reference = weakref.ref(courier)
+
+    del courier
+    gc.collect()
+
+    assert reference() is None
+
+
 def test_iterators_keep_their_container(ext: types.ModuleType) -> None:
     """Check that an iterator keeps the instance it iterates over alive."""
     bag = ext.Bag([1])

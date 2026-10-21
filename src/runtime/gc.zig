@@ -14,7 +14,7 @@ pub fn holdsReferences(comptime T: type) bool {
     if (reflection.elementOf(T)) |Element| return holdsReferences(Element);
 
     const fields = reflection.fieldTypes(T) orelse return false;
-    if (reflection.isConversionType(T)) return false;
+    if (std.meta.hasFn(T, "fromPython")) return false;
     return reflection.any(fields, holdsReferences);
 }
 
