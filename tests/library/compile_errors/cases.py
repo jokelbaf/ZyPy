@@ -90,6 +90,8 @@ BAD_FUNCTIONS: typing.Final = (
         "py.function(oddItems, .{})",
         "ZyPy can't view buffers of u24 (use bool, f16, f32, f64, or an integer of 8, 16, 32 or 64 bits)",
     ),
+    ('py.function(pair, .{ .doc = "a\\x00b" })', "'f': .doc can't contain zero bytes"),
+    ('py.function(pair, .{ .doc = "\\xff" })', "'f': .doc must be UTF-8 text"),
 )
 
 BAD_MODULES: typing.Final = (

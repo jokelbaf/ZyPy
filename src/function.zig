@@ -81,7 +81,7 @@ pub fn keywordNames(comptime name: []const u8, comptime entry: anytype) []const 
     return names;
 }
 
-/// Check that a docstring option is a string or `null`.
+/// Check that a docstring option is UTF-8 text without zero bytes, or `null`.
 pub fn text(comptime context: []const u8, comptime value: anytype) ?[:0]const u8 {
     const Value = @TypeOf(value);
     if (Value == @TypeOf(null)) return null;
@@ -91,7 +91,12 @@ pub fn text(comptime context: []const u8, comptime value: anytype) ?[:0]const u8
     }
 
     if (!Signature.isText(Value)) @compileError(context ++ " must be a string or null, not " ++ @typeName(Value));
-    return std.fmt.comptimePrint("{s}", .{value});
+    const doc: []const u8 = value;
+    @setEvalBranchQuota(1_000 + 10 * doc.len);
+    // Python reads docstrings as C strings and decodes them as UTF-8.
+    if (std.mem.indexOfScalar(u8, doc, 0) != null) @compileError(context ++ " can't contain zero bytes");
+    if (!std.unicode.utf8ValidateSlice(doc)) @compileError(context ++ " must be UTF-8 text");
+    return std.fmt.comptimePrint("{s}", .{doc});
 }
 
 fn table(comptime context: []const u8, comptime value: anytype) @TypeOf(value) {
