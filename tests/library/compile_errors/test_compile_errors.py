@@ -8,12 +8,14 @@ import library.compile_errors.cases
 import zypy.zig
 
 ROOT: typing.Final = pathlib.Path(__file__).with_name("root.zig")
+DEFINITIONS: typing.Final = ROOT.with_name("definitions.zig")
 
 
 def test_compile_errors(tmp_path: pathlib.Path) -> None:
     """Check that misused APIs produce helpful compile errors."""
     project = helpers.copy_example("hello", tmp_path)
-    (project / "src" / "root.zig").write_text(root_source())
+    (project / "src" / "root.zig").write_text(ROOT.read_text())
+    (project / "src" / "definitions.zig").write_text(definitions_source())
 
     command = [*zypy.zig.command(), "build", f"-Dpython={sys.executable}"]
     result = subprocess.run(command, cwd=project, capture_output=True, text=True, check=False)
@@ -23,8 +25,8 @@ def test_compile_errors(tmp_path: pathlib.Path) -> None:
     assert missing == [], result.stderr
 
 
-def root_source() -> str:
-    """Generate root.zig with a separate module for each invalid definition."""
+def definitions_source() -> str:
+    """Generate definitions.zig with a separate module for each invalid definition."""
     functions = [
         own_module(f"bad_function{index}", f".{{ .functions = .{{ .f = {definition} }} }}")
         for index, (definition, _) in enumerate(library.compile_errors.cases.BAD_FUNCTIONS)
@@ -34,7 +36,7 @@ def root_source() -> str:
         for index, (definition, _) in enumerate(library.compile_errors.cases.BAD_MODULES)
     ]
 
-    return "\n".join([ROOT.read_text(), *functions, *modules])
+    return "\n".join([DEFINITIONS.read_text(), *functions, *modules])
 
 
 def own_module(name: str, definition: str) -> str:

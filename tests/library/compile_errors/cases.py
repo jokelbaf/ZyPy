@@ -88,7 +88,10 @@ BAD_FUNCTIONS: typing.Final = (
     ),
     (
         "py.function(useLease, .{})",
-        "'f': parameter 1 holds a root.Lease, which has a deinit but no owned field, so the function could release it",
+        (
+            "'f': parameter 1 holds a definitions.Lease, which has a deinit but no owned field, so the function could "
+            "release it"
+        ),
     ),
     (
         "py.function(oddItems, .{})",
@@ -142,7 +145,10 @@ BAD_MODULES: typing.Final = (
         ".{ .classes = .{ .Holder = Holder } }",
         "'Holder': field 'obj' holds Python objects, so declare it as py.Owned(py.Object), which keeps a reference",
     ),
-    (".{ .classes = .{ .NoField = NoField } }", "'NoField': .fields has 'z', which isn't a field of root.NoField"),
+    (
+        ".{ .classes = .{ .NoField = NoField } }",
+        "'NoField': .fields has 'z', which isn't a field of definitions.NoField",
+    ),
     (
         ".{ .classes = .{ .SpecialField = SpecialField } }",
         "'SpecialField': '__len__' is the name of a special method, so it can't be a field",
@@ -168,13 +174,13 @@ BAD_MODULES: typing.Final = (
     (
         ".{ .classes = .{ .Target = Target, .RawHolder = RawHolder } }",
         (
-            "'RawHolder': field 'target' points into an instance of root.Target without keeping it alive, "
-            "so declare it as py.Owned(py.Instance(root.Target))"
+            "'RawHolder': field 'target' points into an instance of definitions.Target without keeping it alive, "
+            "so declare it as py.Owned(py.Instance(definitions.Target))"
         ),
     ),
     (
         ".{ .classes = .{ .Target = Target, .OwnedPointer = OwnedPointer } }",
-        "'OwnedPointer': field 'target' points into an instance of root.Target without keeping it alive",
+        "'OwnedPointer': field 'target' points into an instance of definitions.Target without keeping it alive",
     ),
     (".{ .classes = .{ .SetterResult = SetterResult } }", "'SetterResult': __setitem__ must return void"),
     (
@@ -201,41 +207,41 @@ BAD_MODULES: typing.Final = (
     (
         ".{ .state = Counted, .functions = .{ .bump = py.function(bump, .{ .release_gil = true }) } }",
         (
-            "'bump': .release_gil can't be used with a *root.Counted parameter: other threads can use the "
+            "'bump': .release_gil can't be used with a *definitions.Counted parameter: other threads can use the "
             "module's state while the GIL is released"
         ),
     ),
     (".{ .classes = .{ .Releaser = Releaser } }", "'Releaser': __release_buffer__ needs __buffer__"),
     (
         ".{ .classes = .{ .ClassRepr = ClassRepr } }",
-        "'ClassRepr.__repr__' must take the instance first, such as self: *const root.ClassRepr",
+        "'ClassRepr.__repr__' must take the instance first, such as self: *const definitions.ClassRepr",
     ),
     (
         ".{ .classes = .{ .Final = Final, .FromFinal = FromFinal } }",
-        "'FromFinal': its base root.Final doesn't allow subclasses (set .subclassable = true in its py.class)",
+        "'FromFinal': its base definitions.Final doesn't allow subclasses (set .subclassable = true in its py.class)",
     ),
     (
         ".{ .classes = .{ .Open = Open, .Misplaced = Misplaced } }",
         (
-            "'Misplaced': root.Misplaced must hold its base in its first field, such as base: root.Open "
+            "'Misplaced': definitions.Misplaced must hold its base in its first field, such as base: definitions.Open "
             "align(py.base_alignment)"
         ),
     ),
     (
         ".{ .classes = .{ .Open = Open, .Unaligned = Unaligned } }",
         (
-            "'Unaligned': declare the base field as base: root.Open align(py.base_alignment), which keeps it at the "
-            "start of root.Unaligned on every target (Zig orders fields by alignment)"
+            "'Unaligned': declare the base field as base: definitions.Open align(py.base_alignment), which keeps it at "
+            "the start of definitions.Unaligned on every target (Zig orders fields by alignment)"
         ),
     ),
     (
         ".{ .classes = .{ .ValueBase = ValueBase } }",
-        "py.class(root.ValueBase): .base must be a class, not a value of type comptime_int",
+        "py.class(definitions.ValueBase): .base must be a class, not a value of type comptime_int",
     ),
     (
         ".{ .classes = .{ .Orphan = Orphan } }",
         (
-            "py.module: 'Orphan' inherits from root.Open, so list that class in .classes too, before 'Orphan' "
+            "py.module: 'Orphan' inherits from definitions.Open, so list that class in .classes too, before 'Orphan' "
             "(a class and its base must be in the same module)"
         ),
     ),
@@ -252,13 +258,13 @@ BAD_MODULES: typing.Final = (
         "py.module: .enums: 'Reserved': enum.Enum reserves the name 'mro'",
     ),
     (".{ .enums = .{ .Keyword = Keyword } }", "py.module: .enums: 'Keyword': 'lambda' is a Python keyword"),
-    (".{ .enums = .{ .A = Shade, .B = Shade } }", "py.module: .enums lists root.Shade twice"),
+    (".{ .enums = .{ .A = Shade, .B = Shade } }", "py.module: .enums lists definitions.Shade twice"),
     (
         ".{ .enums = .{ .Shade = Shade }, .constants = .{ .Shade = 1 } }",
         "py.module: 'Shade' is in both .constants and .enums (a module has one value per name)",
     ),
     (".{ .enums = .{ .BadEnum = BadEnumOption } }", "py.enumClass: unknown option .docs (expected .doc)"),
-    (".{ .state = NeedsInit }", "py.module: root.NeedsInit needs an init function, or a default value for 'n'"),
+    (".{ .state = NeedsInit }", "py.module: definitions.NeedsInit needs an init function, or a default value for 'n'"),
     (".{ .state = ObjectState }", "py.module: .state: field 'obj' holds Python objects"),
     (
         ".{ .free_threaded = true, .submodules = .{ .plain = py.module(.{}) } }",
