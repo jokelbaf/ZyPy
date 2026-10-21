@@ -151,6 +151,16 @@ zig build -Dbundle-python=true
 
 Copy the whole `zig-out` directory to distribute the program with Python, about 70 MB in this example. The executable locates libpython in `../lib`, and `py.Interpreter` locates the bundled standard library. With bundling enabled, `py.build_python` is `null` and `.executable` defaults to the program itself.
 
+`b.addRunArtifact` runs the executable from Zig's cache, away from its bundled Python libraries. For `zig build run`, use the installed executable so it can find those libraries in `../lib`:
+
+```zig title="build.zig"
+const run = std.Build.Step.Run.create(b, "run embed");
+run.addFileArg(.{ .relative = .{ .base = .install_bin, .sub_path = exe.out_filename } });
+run.addPassthruArgs();
+run.step.dependOn(b.getInstallStep());
+b.step("run", "Run the program").dependOn(&run.step);
+```
+
 ## Cross-compile
 
 A bundled Python also lets you build for other platforms, since the build doesn't need to run a Python for the target:
