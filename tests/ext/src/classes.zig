@@ -864,6 +864,8 @@ pub const Marker = struct {
             .__radd__ = addTo,
             .__sub__ = subtract,
             .__rsub__ = subtractFrom,
+            .__mul__ = multiply,
+            .__rmul__ = multiplyBy,
             .__pow__ = power,
             .__rpow__ = powerOf,
         },
@@ -883,6 +885,14 @@ pub const Marker = struct {
 
     fn subtractFrom(_: *const Marker, _: *const Marker) !py.Str {
         return py.Str.init("Marker.__rsub__");
+    }
+
+    fn multiply(_: *const Marker, _: *const Marker) !py.Object {
+        return py.eval(py.Object, "NotImplemented");
+    }
+
+    fn multiplyBy(_: *const Marker, _: *const Marker) !py.Str {
+        return py.Str.init("Marker.__rmul__");
     }
 
     fn power(_: *const Marker, _: *const Marker) !py.Str {

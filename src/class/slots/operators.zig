@@ -273,7 +273,6 @@ pub fn Operators(comptime Special: type) type {
         fn negate(result: ?Object) errors.Error!?Object {
             const obj = result orelse return null;
             defer obj.deinit();
-            if (obj.ptr == api.notImplemented()) return null;
 
             const is_true = c.PyObject_IsTrue(obj.ptr);
             try errors.check(is_true);
@@ -308,11 +307,17 @@ fn callOperator(
     extra: anytype,
 ) errors.Error!?Object {
     if (comptime !Special.has(method)) return null;
-    return switch (extra.len) {
+    const result = try switch (extra.len) {
         0 => Special.callObject(method, 1, self, .{other}, .not_implemented),
         1 => callPower(Special, method, self, other, extra[0]),
         else => comptime unreachable,
-    };
+    } orelse return null;
+
+    if (result.ptr == api.notImplemented()) {
+        result.deinit();
+        return null;
+    }
+    return result;
 }
 
 fn callPower(
