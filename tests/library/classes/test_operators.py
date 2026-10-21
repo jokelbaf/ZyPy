@@ -14,6 +14,8 @@ def test_comparisons_and_hashing(ext: types.ModuleType) -> None:
 
     assert hash(ext.Point(1, 2)) == hash(ext.Point(1, 2))
     assert len({ext.Point(1, 2), ext.Point(1, 2), ext.Point(0)}) == 2
+    assert hash(ext.Point(-0.0, 1)) == hash(ext.Point(0.0, 1))
+    assert len({ext.Point(-0.0, 1), ext.Point(0.0, 1)}) == 1
 
     with pytest.raises(TypeError, match="'<=' not supported"):
         operator.le(ext.Point(1), ext.Point(2))

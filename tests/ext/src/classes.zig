@@ -79,7 +79,9 @@ pub const Point = struct {
     }
 
     fn hash(self: *const Point) u64 {
-        return std.hash.Wyhash.hash(0, std.mem.asBytes(self));
+        // Equal values need equal hashes: adding 0.0 normalizes -0.0 to 0.0.
+        const values = [_]f64{ self.x + 0.0, self.y + 0.0 };
+        return std.hash.Wyhash.hash(0, std.mem.asBytes(&values));
     }
 
     fn plus(self: *const Point, other: *const Point) Point {
