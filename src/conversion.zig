@@ -97,6 +97,8 @@ pub fn toPythonHeld(value: anytype) errors.Error!Object {
     return toPython(held);
 }
 
+pub const copyAgain = aggregates.copyAgain;
+
 /// Convert an owned container item to `T`, consuming its reference.
 /// Object references borrow from the container. Free-threaded calls keep the item alive until they return.
 pub fn fromItem(comptime T: type, item: Object) errors.Error!T {

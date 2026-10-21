@@ -389,6 +389,13 @@ pub fn nodeValueInTuple(pair: struct { Node, i64 }) py.Object {
     return pair[0].value.get();
 }
 
+/// Return a node key's value after converting a dict value that may change the node.
+pub fn nodeKeyValue(entries: py.Dict) !py.Object {
+    var iterator = entries.iterator(Node, i64);
+    const entry = try iterator.next() orelse return py.raise(.ValueError, "expected an entry");
+    return entry.key.value.get();
+}
+
 pub const Tracker = struct {
     callback: py.Owned(py.Object),
     finalized: bool = false,

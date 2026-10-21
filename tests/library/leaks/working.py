@@ -173,6 +173,7 @@ def classes(ext: types.ModuleType) -> list[Call]:
         lambda: ext.value_after_call(ext.Node([1]), list),
         lambda: ext.Node([1]).value_after(list),
         lambda: ext.Node([1]).release_value(),
+        lambda: ext.node_key_value({ext.Node([1]): 2}),
         lambda: ext.Courier({"label": {"function": str}, "item": [1]}).parcel_copy(),
         lambda: ext.hold_parcel({"label": {"function": str}, "item": [1]}),
         lambda: ext.Pair([1], [2]).items,

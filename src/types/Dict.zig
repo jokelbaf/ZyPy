@@ -126,7 +126,7 @@ pub fn Iterator(comptime K: type, comptime V: type) type {
             const key, const value = try self.read(dict) orelse return null;
 
             // Keep both objects alive because either conversion may run Python code that changes the dict.
-            const entry_key = conversion.fromPython(K, key) catch |err| {
+            var entry_key = conversion.fromPython(K, key) catch |err| {
                 key.deinit();
                 value.deinit();
                 return err;
@@ -137,13 +137,15 @@ pub fn Iterator(comptime K: type, comptime V: type) type {
                 value.deinit();
                 return err;
             };
-            if (self.changed(dict)) {
+            // Value conversion may change the dict or class instances copied into the key.
+            const checked = if (self.changed(dict)) changedError() else conversion.copyAgain(K, key.ptr, &entry_key);
+            checked catch |err| {
                 ownership.deinit(entry_value);
                 ownership.deinit(entry_key);
                 key.deinit();
                 value.deinit();
-                return changedError();
-            }
+                return err;
+            };
 
             conversion.settle(V, entry_value, value) catch |err| {
                 ownership.deinit(entry_key);

@@ -242,6 +242,7 @@ pub const module = py.module(.{
         .open_handle = classes.openHandle,
         .value_after_call = classes.valueAfterCall,
         .node_value_in_tuple = classes.nodeValueInTuple,
+        .node_key_value = classes.nodeKeyValue,
         .label_length = classes.labelLength,
         .build_shape = classes.buildShape,
         .relabel = classes.relabel,

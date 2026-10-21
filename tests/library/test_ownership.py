@@ -64,6 +64,23 @@ def test_tuple_copies_outlive_later_items(ext: types.ModuleType) -> None:
     assert item() is None
 
 
+def test_dict_key_copies_outlive_values(ext: types.ModuleType) -> None:
+    """Check that copied class keys survive changes during conversion of their values."""
+    node = ext.Node(helpers.Item())
+    item = weakref.ref(node.value)
+
+    class Index:
+        """An integer-like object that releases the key's value during conversion."""
+
+        def __index__(self) -> int:
+            """Replace the value and return 1."""
+            node.value = None
+            return 1
+
+    assert ext.node_key_value({node: Index()}) is None
+    assert item() is None
+
+
 def test_reference_counts(ext: types.ModuleType) -> None:
     """Check that calls preserve argument reference counts."""
     o, k = object(), object()

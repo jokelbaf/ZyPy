@@ -30,25 +30,22 @@ pub fn tupleFromPython(comptime T: type, obj: Object) errors.Error!T {
         result[i] = try conversion.fromPython(Field, .borrow(c.PyTuple_GetItem(obj.ptr, i)));
         converted += 1;
     }
-    if (comptime holdsCopies(T)) try copyAgain(T, obj, &result);
+    try copyAgain(T, obj.ptr, &result);
     return result;
 }
 
-// Later conversions may change earlier class values, so refresh copies after all items are converted.
-fn copyAgain(comptime T: type, obj: Object, result: *T) errors.Error!void {
-    inline for (@typeInfo(T).@"struct".field_types, 0..) |Field, i| {
-        if (comptime holdsCopies(Field)) try copyItemAgain(Field, c.PyTuple_GetItem(obj.ptr, i).?, &result[i]);
-    }
-}
-
-fn copyItemAgain(comptime T: type, item: *c.PyObject, value: *T) errors.Error!void {
+/// Refresh copied class values from `item` after conversions that may change the original instances.
+pub fn copyAgain(comptime T: type, item: *c.PyObject, value: *T) errors.Error!void {
+    if (comptime !holdsCopies(T)) return;
     if (comptime class.isClass(T)) {
         value.* = try class.copyFrom(T, item);
         return;
     }
     switch (@typeInfo(T)) {
-        .optional => |info| if (value.*) |*inner| try copyItemAgain(info.child, item, inner),
-        else => try copyAgain(T, .borrow(item), value),
+        .optional => |info| if (value.*) |*inner| try copyAgain(info.child, item, inner),
+        else => inline for (0..@typeInfo(T).@"struct".field_types.len) |i| {
+            try copyAgain(@TypeOf(value[i]), c.PyTuple_GetItem(item, i).?, &value[i]);
+        },
     }
 }
 
