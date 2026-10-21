@@ -124,38 +124,34 @@ pub fn Iterator(comptime K: type, comptime V: type) type {
         pub fn next(self: *Self) errors.Error!?Entry {
             const dict = self.dict orelse return null;
             const key, const value = try self.read(dict) orelse return null;
-
-            // Keep both objects alive because either conversion may run Python code that changes the dict.
-            var entry_key = conversion.fromPython(K, key) catch |err| {
-                key.deinit();
-                value.deinit();
-                return err;
-            };
-            const entry_value = conversion.fromPython(V, value) catch |err| {
-                ownership.deinit(entry_key);
-                key.deinit();
-                value.deinit();
-                return err;
-            };
-            // Value conversion may change the dict or class instances copied into the key.
-            const checked = if (self.changed(dict)) changedError() else conversion.copyAgain(K, key.ptr, &entry_key);
-            checked catch |err| {
-                ownership.deinit(entry_value);
-                ownership.deinit(entry_key);
+            const entry = self.convert(dict, key, value) catch |err| {
                 key.deinit();
                 value.deinit();
                 return err;
             };
 
-            conversion.settle(V, entry_value, value) catch |err| {
-                ownership.deinit(entry_key);
+            conversion.settle(V, entry.value, value) catch |err| {
+                ownership.deinit(entry.key);
                 key.deinit();
                 return err;
             };
-            conversion.settle(K, entry_key, key) catch |err| {
-                ownership.deinit(entry_value);
+            conversion.settle(K, entry.key, key) catch |err| {
+                ownership.deinit(entry.value);
                 return err;
             };
+            return entry;
+        }
+
+        // Either conversion can run Python code that changes the dict, so both objects must stay alive.
+        fn convert(self: *const Self, dict: *c.PyObject, key: Object, value: Object) errors.Error!Entry {
+            var entry_key = try conversion.fromPython(K, key);
+            errdefer ownership.deinit(entry_key);
+            const entry_value = try conversion.fromPython(V, value);
+            errdefer ownership.deinit(entry_value);
+
+            if (self.changed(dict)) return changedError();
+            // Converting the value can change instances that the key copied.
+            try conversion.copyAgain(K, key.ptr, &entry_key);
             return .{ .key = entry_key, .value = entry_value };
         }
 

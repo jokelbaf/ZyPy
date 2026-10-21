@@ -1,4 +1,3 @@
-const std = @import("std");
 const c = @import("python");
 
 const class = @import("../class.zig");

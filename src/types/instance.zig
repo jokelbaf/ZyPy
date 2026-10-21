@@ -1,5 +1,3 @@
-const c = @import("python");
-
 const class = @import("../class.zig");
 const conversion = @import("../conversion.zig");
 const errors = @import("../errors.zig");
