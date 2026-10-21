@@ -252,6 +252,7 @@ pub const module = py.module(.{
         .new_blank = classes.newBlank,
 
         .hold_parcel = callbacks.holdParcel,
+        .labelled_item = callbacks.labelledItem,
 
         .count_calls = modules.countCalls,
         .state_version = modules.stateVersion,

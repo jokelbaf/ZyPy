@@ -35,3 +35,8 @@ pub fn holdParcel(parcel: Parcel) void {
     var held: py.Owned(Parcel) = .init(parcel);
     held.deinit();
 }
+
+/// Return a label computed by a callback, the first item of `items`, and a view of `data`.
+pub fn labelledItem(function: py.Object, items: py.List, data: py.Buffer(u8)) !struct { Callback, py.Object, py.Buffer(u8) } {
+    return .{ .{ .function = function }, try items.get(py.Object, 0), data };
+}

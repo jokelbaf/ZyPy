@@ -8,6 +8,7 @@ const numbers = @import("conversion/numbers.zig");
 const errors = @import("errors.zig");
 const api = @import("runtime/api.zig");
 const borrowed = @import("runtime/borrowed.zig");
+const gc = @import("runtime/gc.zig");
 const ownership = @import("runtime/ownership.zig");
 const Bytes = @import("types/Bytes.zig");
 const List = @import("types/List.zig");
@@ -85,16 +86,26 @@ pub fn intoPython(value: anytype) errors.Error!Object {
     return toPythonHeld(value);
 }
 
-/// Convert `value` to an owned Python object, keeping borrowed references alive during conversion.
+/// Convert `value` to an owned Python object, keeping its referenced objects alive during conversion.
 pub fn toPythonHeld(value: anytype) errors.Error!Object {
     const T = @TypeOf(value);
-    // Reference conversion cannot call Python; owning values cannot be safely retained.
+    // Converting a reference runs no Python code.
     const Reference = if (@typeInfo(T) == .optional) @typeInfo(T).optional.child else T;
-    if (comptime ownership.isReference(Reference) or ownership.ownsResources(T)) return toPython(value);
+    if (comptime ownership.isReference(Reference)) return toPython(value);
 
-    const held = ownership.retain(ownership.lend(value));
-    defer ownership.deinit(held);
-    return toPython(held);
+    _ = gc.visit(&value, &hold, null);
+    defer _ = gc.visit(&value, &unhold, null);
+    return toPython(value);
+}
+
+fn hold(obj: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) c_int {
+    c.Py_IncRef(obj);
+    return 0;
+}
+
+fn unhold(obj: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) c_int {
+    c.Py_DecRef(obj);
+    return 0;
 }
 
 pub const copyAgain = aggregates.copyAgain;

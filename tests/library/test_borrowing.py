@@ -108,3 +108,22 @@ def test_conversions_that_replace_fields(ext: types.ModuleType) -> None:
     """Check that field and method results survive Python callbacks during conversion."""
     check_parcel_survives(ext, operator.attrgetter("parcel"))
     check_parcel_survives(ext, operator.methodcaller("parcel_copy"))
+
+
+def test_results_with_views_keep_their_objects(ext: types.ModuleType) -> None:
+    """Check that results containing views keep their objects alive during Python callbacks."""
+    item = helpers.Item()
+    reference = weakref.ref(item)
+    items = [item]
+    alive: list[bool] = []
+    del item
+
+    def clear() -> str:
+        """Remove the item that the result borrows."""
+        items.clear()
+        alive.append(reference() is not None)
+        return "label"
+
+    assert ext.labelled_item(clear, items, b"data") == ("label", reference(), b"data")
+    assert alive == [True]
+    assert reference() is None
