@@ -8,14 +8,12 @@ const enum_class = @import("enum_class.zig");
 const errors = @import("errors.zig");
 const function = @import("function.zig");
 const checks = @import("module/checks.zig");
+const storage = @import("module/storage.zig");
 const submodules = @import("module/submodules.zig");
 const api = @import("runtime/api.zig");
 const borrowed = @import("runtime/borrowed.zig");
-const gc = @import("runtime/gc.zig");
 const names = @import("runtime/names.zig");
-const ownership = @import("runtime/ownership.zig");
 const syntax = @import("syntax.zig");
-const Object = @import("types/Object.zig");
 const Str = @import("types/Str.zig");
 
 const Option = enum { doc, functions, errors, constants, exceptions, classes, enums, submodules, state, subinterpreters, free_threaded };
@@ -72,11 +70,6 @@ pub fn module(comptime definition: anytype) type {
     comptime checks.checkSubmodules(children, supports_free_threading, isModule);
     comptime checks.checkState(UserState);
     const keyword_list = comptime keywordNames(functions, classes);
-    const EnumMembers = comptime blk: {
-        var types: [enum_names.len]type = undefined;
-        for (enum_names, &types) |enum_name, *Members| Members.* = enum_class.Members(@field(enums, enum_name));
-        break :blk @Tuple(&types);
-    };
 
     return struct {
         const Module = @This();
@@ -99,15 +92,7 @@ pub fn module(comptime definition: anytype) type {
             .submodules = children,
         };
 
-        const Storage = struct {
-            objects: [exception_names.len + class_names.len]?*c.PyObject,
-            enum_members: EnumMembers,
-            state: State,
-            live: bool,
-            ready: bool,
-            keywords: [keyword_list.len]?*c.PyObject,
-            call_names: names.Cache,
-        };
+        const Storage = storage.Storage(exceptions, classes, enums, State, keyword_list.len);
 
         var methods = methodTable(functions, Module);
 
@@ -144,15 +129,15 @@ pub fn module(comptime definition: anytype) type {
 
         /// Get the state of `module_obj`, an instance of this module.
         pub fn stateOf(module_obj: *c.PyObject) errors.Error!*State {
-            const storage = storageOf(module_obj) orelse return notReady();
-            if (!storage.ready) return notReady();
-            return &storage.state;
+            const stored = Storage.of(module_obj) orelse return notReady();
+            if (!stored.ready) return notReady();
+            return &stored.state;
         }
 
         /// Get keyword names in `keyword_names` order. Entries are null after cleanup.
         pub fn internedKeywords(module_obj: *c.PyObject) ?*const [keyword_list.len]?*c.PyObject {
-            const storage = storageOf(module_obj) orelse return null;
-            return &storage.keywords;
+            const stored = Storage.of(module_obj) orelse return null;
+            return &stored.keywords;
         }
 
         /// Borrow the module defining `tp` or one of its bases. Return `null` if none is found.
@@ -172,10 +157,6 @@ pub fn module(comptime definition: anytype) type {
             return errors.raise(.RuntimeError, "the module's state isn't initialized");
         }
 
-        fn storageOf(module_obj: *c.PyObject) ?*Storage {
-            return @ptrCast(@alignCast(c.PyModule_GetState(module_obj) orelse return null));
-        }
-
         fn exec(module_obj: [*c]c.PyObject) callconv(.c) c_int {
             const frame = borrowed.enter(runs_without_gil);
             defer frame.leave();
@@ -185,11 +166,11 @@ pub fn module(comptime definition: anytype) type {
         }
 
         fn setUp(module_obj: *c.PyObject) errors.Error!void {
-            const storage = storageOf(module_obj).?;
-            storage.call_names = .{};
-            names.register(&storage.call_names);
+            const stored = Storage.of(module_obj).?;
+            stored.call_names = .{};
+            names.register(&stored.call_names);
             inline for (keyword_list, 0..) |keyword, i| {
-                storage.keywords[i] = c.PyUnicode_InternFromString(keyword) orelse return error.PythonError;
+                stored.keywords[i] = c.PyUnicode_InternFromString(keyword) orelse return error.PythonError;
             }
 
             const name = try Str.own(c.PyModule_GetNameObject(module_obj));
@@ -206,7 +187,7 @@ pub fn module(comptime definition: anytype) type {
                 const docstring = if (Exception.doc) |text| text.ptr else null;
                 const created = c.PyErr_NewExceptionWithDoc((try qualname.utf8()).ptr, docstring, base.ptr, null) orelse
                     return error.PythonError;
-                storage.objects[i] = created;
+                stored.objects[i] = created;
 
                 try Exception.registry.add(created, module_obj, &def, "exception " ++ exception_name);
                 try errors.check(c.PyModule_AddObjectRef(module_obj, exception_name, created));
@@ -218,16 +199,16 @@ pub fn module(comptime definition: anytype) type {
                 defer qualname.deinit();
 
                 // The module checks that a base comes earlier in .classes, so its type exists already.
-                const base = if (comptime baseIndex(classes, T)) |at| storage.objects[exception_names.len + at] else null;
+                const base = if (comptime baseIndex(classes, T)) |at| stored.objects[exception_names.len + at] else null;
                 const created = try class.Type(T, Module, class_name).create(module_obj, (try qualname.utf8()).ptr, base);
-                storage.objects[i] = created;
+                stored.objects[i] = created;
 
                 try class.registry(T).add(created, module_obj, &def, "class " ++ class_name);
                 try errors.check(c.PyModule_AddObjectRef(module_obj, class_name, created));
             }
 
             inline for (enum_names, 0..) |enum_name, i| {
-                const members = &storage.enum_members[i];
+                const members = &stored.enum_members[i];
                 const created = try members.create(name, enum_name);
                 defer created.deinit();
 
@@ -243,9 +224,9 @@ pub fn module(comptime definition: anytype) type {
                 try errors.check(c.PyModule_AddObjectRef(module_obj, constant_name, value.ptr));
             }
 
-            if (State != void) storage.state = try initState(module_obj);
-            storage.live = true;
-            storage.ready = true;
+            if (State != void) stored.state = try initState(module_obj);
+            stored.live = true;
+            stored.ready = true;
 
             try submodules.add(children, module_obj, name);
         }
@@ -260,68 +241,20 @@ pub fn module(comptime definition: anytype) type {
         }
 
         fn traverse(module_obj: [*c]c.PyObject, visitor: c.visitproc, arg: ?*anyopaque) callconv(.c) c_int {
-            const storage = storageOf(module_obj.?) orelse return 0;
-            for (storage.objects) |object| {
-                if (object) |ptr| {
-                    const result = visitor.?(ptr, arg);
-                    if (result != 0) return result;
-                }
-            }
-            inline for (0..enum_names.len) |i| {
-                if (storage.enum_members[i].tuple) |tuple| {
-                    const result = visitor.?(tuple, arg);
-                    if (result != 0) return result;
-                }
-            }
-            if (storage.live) return gc.visit(&storage.state, visitor, arg);
-            return 0;
+            const stored = Storage.of(module_obj.?) orelse return 0;
+            return stored.traverse(visitor, arg);
         }
 
         fn clear(module_obj: [*c]c.PyObject) callconv(.c) c_int {
-            const storage = storageOf(module_obj.?) orelse return 0;
-            releaseObjects(module_obj.?, storage);
-            storage.ready = false;
-            if (storage.live) gc.clear(&storage.state);
+            const stored = Storage.of(module_obj.?) orelse return 0;
+            stored.clear(module_obj.?);
             return 0;
         }
 
         fn free(ptr: ?*anyopaque) callconv(.c) void {
             const module_obj: *c.PyObject = @ptrCast(@alignCast(ptr.?));
-            const storage = storageOf(module_obj) orelse return;
-            releaseObjects(module_obj, storage);
-            storage.ready = false;
-            if (storage.live) {
-                storage.live = false;
-                ownership.release(&storage.state);
-            }
-        }
-
-        fn releaseObjects(module_obj: *c.PyObject, storage: *Storage) void {
-            names.unregister(&storage.call_names);
-            storage.call_names.deinit();
-            for (&storage.keywords) |*keyword| {
-                const obj = keyword.* orelse continue;
-                keyword.* = null;
-                c.Py_DecRef(obj);
-            }
-            inline for (exception_names, 0..) |exception_name, i| {
-                if (storage.objects[i]) |object| {
-                    @field(exceptions, exception_name).registry.remove(module_obj);
-                    storage.objects[i] = null;
-                    c.Py_DecRef(object);
-                }
-            }
-            inline for (class_names, exception_names.len..) |class_name, i| {
-                if (storage.objects[i]) |object| {
-                    class.registry(@field(classes, class_name)).remove(module_obj);
-                    storage.objects[i] = null;
-                    c.Py_DecRef(object);
-                }
-            }
-            inline for (enum_names, 0..) |enum_name, i| {
-                enum_class.registry(@field(enums, enum_name)).remove(module_obj);
-                storage.enum_members[i].release();
-            }
+            const stored = Storage.of(module_obj) orelse return;
+            stored.free(module_obj);
         }
     };
 }
