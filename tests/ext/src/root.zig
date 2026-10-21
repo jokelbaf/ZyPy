@@ -67,6 +67,7 @@ pub const module = py.module(.{
         .identity128 = values.identity128,
         .zero = values.zero,
         .raise_repeated = values.raiseRepeated,
+        .raise_bytes = values.raiseBytes,
         .half = values.half,
         .negate = values.negate,
         .nothing = values.nothing,

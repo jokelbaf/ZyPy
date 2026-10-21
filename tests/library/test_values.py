@@ -105,6 +105,12 @@ def test_long_formatted_messages(ext: types.ModuleType, text: str) -> None:
     assert len(message.encode()) <= 511
 
 
+def test_messages_with_invalid_utf8(ext: types.ModuleType) -> None:
+    """Check that invalid UTF-8 in a message does not change the exception type."""
+    with pytest.raises(ValueError, match=r"^bad: caf\ufffd\.$"):
+        ext.raise_bytes(b"caf\xe9.")
+
+
 def test_objects(ext: types.ModuleType) -> None:
     """Check py.Object conversion to and from Python objects."""
     o = object()

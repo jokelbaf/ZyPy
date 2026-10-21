@@ -27,6 +27,11 @@ pub fn raiseRepeated(text: py.Str, count: u16) !void {
     return py.raiseFmt(.ValueError, "{f}", .{repeated});
 }
 
+/// Raise `ValueError` with a message that may contain invalid UTF-8.
+pub fn raiseBytes(data: []const u8) !void {
+    return py.raiseFmt(.ValueError, "bad: {s}", .{data});
+}
+
 const Repeated = struct {
     text: []const u8,
     count: u16,

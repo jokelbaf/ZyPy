@@ -17,7 +17,8 @@ pub fn raise(comptime kind: anytype, message: [:0]const u8) Error {
     const exception = exceptionObject(kind) catch |err| return err;
     defer exception.deinit();
 
-    c.PyErr_SetString(exception.ptr, message.ptr);
+    // Use %s to replace invalid UTF-8 without changing the requested exception type.
+    _ = c.PyErr_Format(exception.ptr, "%s", message.ptr);
     return error.PythonError;
 }
 

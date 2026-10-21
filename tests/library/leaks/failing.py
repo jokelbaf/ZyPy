@@ -39,6 +39,7 @@ def values(ext: types.ModuleType) -> list[Call]:
         lambda: ext.fail(2),
         lambda: ext.add(2**63 - 1, 1),
         lambda: ext.quotient(1, 0),
+        lambda: ext.raise_bytes(b"\xff"),
         lambda: ext.describe_user({"name": "Ann"}),
         lambda: ext.describe_user({"age": 1, "name": 2}),
         lambda: ext.job_total({"data": array.array("d", [1]), "weight": "x", "owner": {}}),
