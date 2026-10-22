@@ -1,6 +1,6 @@
 [project]
 name = "zypy"
-version = "0.1.0"
+version = "0.2.0"
 description = "Write Python extensions in Zig, and use Python from Zig"
 readme = "README.md"
 license = "MIT"
