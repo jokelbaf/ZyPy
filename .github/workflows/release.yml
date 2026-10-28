@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
       - run: uvx git-cliff --config .github/cliff.toml --unreleased --tag "$TAG" --strip all --output notes.md
       - run: gh release create "$TAG" --notes-file notes.md --target "$GITHUB_SHA"
 
@@ -50,6 +50,6 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
       - run: uv build
       - run: uv publish
