@@ -24,7 +24,7 @@ jobs:
           - { os: ubuntu-24.04-arm, python: 3.14t, tests: tests/library }
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           python-version: ${{ matrix.python }}
       - if: ${{ !matrix.tests }}
@@ -41,7 +41,7 @@ jobs:
       ZYPY_DOCKER_TESTS: 1
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           python-version: "3.13"
       - run: uv run pytest --durations=10 tests/packaging/test_platforms.py::test_musllinux_wheel
