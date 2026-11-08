@@ -11,6 +11,7 @@ import zypy.artifacts.archive
 import zypy.artifacts.files
 import zypy.artifacts.metadata
 import zypy.artifacts.vendor
+import zypy.editable
 import zypy.project
 
 
@@ -32,9 +33,10 @@ def build_sdist(project: zypy.project.Project, directory: pathlib.Path) -> pathl
 
 
 def _outputs(project: zypy.project.Project, path: pathlib.Path) -> set[pathlib.Path]:
-    """Get paths to exclude so the source distribution cannot include its own output."""
+    """Get paths to exclude from the source distribution."""
     output = path.resolve()
-    return {output} if output.parent == project.root else {output, output.parent}
+    outputs = {output} if output.parent == project.root else {output, output.parent}
+    return outputs | zypy.editable.copies(project.root)
 
 
 def _write_tar(file: typing.BinaryIO, filename: str, base: str, files: dict[str, zypy.artifacts.vendor.Source]) -> None:

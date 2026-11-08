@@ -133,12 +133,17 @@ def _build(
 def _venv_python() -> pathlib.Path | None:
     """Find Python in the active virtual environment or the project's .venv."""
     if venv := os.environ.get("VIRTUAL_ENV"):
-        return pathlib.Path(venv) / "bin" / "python"
+        return venv_executable(pathlib.Path(venv))
 
-    if (local := pathlib.Path(".venv") / "bin" / "python").exists():
+    if (local := venv_executable(pathlib.Path(".venv"))).exists():
         return local.absolute()
 
     return None
+
+
+def venv_executable(venv: pathlib.Path) -> pathlib.Path:
+    """Get the Python executable in `venv`."""
+    return venv / "Scripts" / "python.exe" if sys.platform == "win32" else venv / "bin" / "python"
 
 
 def _install(python: pathlib.Path, wheel: pathlib.Path, name: str) -> None:

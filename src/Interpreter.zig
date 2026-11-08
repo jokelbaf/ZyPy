@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const c = @import("python");
 const options = @import("zypy_options");
 
@@ -66,7 +67,10 @@ pub fn init(settings: Options) InitError!Interpreter {
     if (settings.executable orelse bundled.program) |path| {
         try check(c.PyConfig_SetBytesString(&config, &config.executable, path.ptr));
     }
-    if (settings.home orelse bundled.home) |path| {
+    var home_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const default_home = if (builtin.os.tag == .windows) windowsHome(settings.executable, &home_buffer) else null;
+
+    if (settings.home orelse bundled.home orelse default_home) |path| {
         try check(c.PyConfig_SetBytesString(&config, &config.home, path.ptr));
     }
     try setArgv(&config, settings.argv);
@@ -108,6 +112,22 @@ const Bundle = struct {
         return .{ .program = program, .home = self.home_buffer[0..home.len :0] };
     }
 };
+
+/// Use the Python executable's directory as its home on Windows, unless it belongs to a virtual environment.
+fn windowsHome(executable: ?[:0]const u8, buffer: *[std.Io.Dir.max_path_bytes]u8) ?[:0]const u8 {
+    const directory = std.fs.path.dirname(executable orelse return null) orelse return null;
+    const io = std.Io.Threaded.global_single_threaded.io();
+
+    for ([_][]const u8{ directory, std.fs.path.dirname(directory) orelse directory }) |candidate| {
+        const config = std.mem.print(buffer, "{s}" ++ std.fs.path.sep_str ++ "pyvenv.cfg", .{candidate}) catch return null;
+        if (std.Io.Dir.cwd().access(io, config, .{})) return null else |_| {}
+    }
+
+    if (directory.len >= buffer.len) return null;
+    @memcpy(buffer[0..directory.len], directory);
+    buffer[directory.len] = 0;
+    return buffer[0..directory.len :0];
+}
 
 fn setArgv(config: *c.PyConfig, argv: []const [:0]const u8) InitError!void {
     if (argv.len == 0) return;

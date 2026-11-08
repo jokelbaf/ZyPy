@@ -5,6 +5,7 @@ zig-pkg/
 dist/
 __pycache__/
 *.so
+*.pyd
 examples/mixed/python/mixed/_core.pyi
 .pytest_cache/
 .ruff_cache/

@@ -47,6 +47,8 @@ pub fn add(b: *std.Build, options: Options) *std.Build.Step.Compile {
         // Keep the build machine's library directories out of the program's search path.
         exe.each_lib_rpath = false;
         installBundle(b, root_path, options.target);
+    } else if (options.target.result.os.tag == .windows) {
+        installDlls(b, python);
     }
     return exe;
 }
@@ -55,6 +57,11 @@ pub fn add(b: *std.Build, options: Options) *std.Build.Step.Compile {
 pub fn linkPython(root: *std.Build.Module, python: Python) void {
     if (!python.shared) {
         std.process.fatal("{s} has no shared libpython to embed (it was built without --enable-shared)", .{python.executable});
+    }
+    if (root.resolved_target.?.result.os.tag == .windows) {
+        // Windows has no rpath: programs load Python's DLL from their own directory.
+        root.addObjectFile(python.importLibrary(root.owner, false));
+        return;
     }
     if (python.bundle) |bundle_path| {
         root.addLibraryPath(bundle_path.path(root.owner, "lib"));
@@ -70,8 +77,17 @@ pub fn linkPython(root: *std.Build.Module, python: Python) void {
 
 fn installBundle(b: *std.Build, root: std.Build.LazyPath, target: std.Build.ResolvedTarget) void {
     const state = State.of(b);
-    if (state.installed_bundle) return;
-    state.installed_bundle = true;
+    if (state.installed_python) return;
+    state.installed_python = true;
+
+    if (target.result.os.tag == .windows) {
+        for (bundle.dlls(target.result)) |dll| b.getInstallStep().dependOn(&b.addInstallBinFile(root.path(b, dll), dll).step);
+        // Python finds these in its home, the parent of bin/.
+        for ([_][]const u8{ "Lib", "DLLs" }) |directory| {
+            b.installDirectory(.{ .source_dir = root.path(b, directory), .install_dir = .prefix, .install_subdir = directory });
+        }
+        return;
+    }
 
     const version = bundle.version;
     const library = if (target.result.os.tag.isDarwin()) "libpython" ++ version ++ ".dylib" else "libpython" ++ version ++ ".so.1.0";
@@ -81,4 +97,22 @@ fn installBundle(b: *std.Build, root: std.Build.LazyPath, target: std.Build.Reso
         .install_dir = .lib,
         .install_subdir = "python" ++ version,
     });
+}
+
+/// Install Python's DLLs and any bundled runtime DLLs beside the program.
+fn installDlls(b: *std.Build, python: Python) void {
+    const state = State.of(b);
+    if (state.installed_python) return;
+    state.installed_python = true;
+
+    const stable = if (python.gil_disabled) "python3t.dll" else "python3.dll";
+    const names = [_][]const u8{ b.fmt("{s}.dll", .{python.lib_name}), stable, "vcruntime140.dll", "vcruntime140_1.dll" };
+    for (names, 0..) |name, i| {
+        const path = b.pathJoin(&.{ python.dll_dir, name });
+        std.Io.Dir.cwd().access(b.graph.io, path, .{}) catch |err| {
+            if (i == 0) std.process.fatal("can't find Python's DLL at {s}: {t}", .{ path, err });
+            continue;
+        };
+        b.getInstallStep().dependOn(&b.addInstallBinFile(.{ .cwd_relative = path }, name).step);
+    }
 }

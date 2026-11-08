@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 
 const Io = std.Io;
 
@@ -31,12 +30,11 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn cachePath(arena: std.mem.Allocator, environ: *const std.process.Environ.Map) ![]const u8 {
-    if (environ.get("ZIG_GLOBAL_CACHE_DIR")) |zig_cache| return std.fs.path.join(arena, &.{ zig_cache, "zypy", "python" });
-    if (environ.get("XDG_CACHE_HOME")) |cache| return std.fs.path.join(arena, &.{ cache, "zig", "zypy", "python" });
-
-    const home = environ.get("HOME") orelse std.process.fatal("can't find Zig's cache: HOME isn't set", .{});
-    const caches = if (builtin.os.tag.isDarwin()) "Library/Caches" else ".cache";
-    return std.fs.path.join(arena, &.{ home, caches, "zig", "zypy", "python" });
+    const zig_cache = std.zig.resolveGlobalCacheDir(arena, environ) catch |err| switch (err) {
+        error.AppDataDirUnavailable => std.process.fatal("can't find Zig's cache: set ZIG_GLOBAL_CACHE_DIR", .{}),
+        else => |other| return other,
+    };
+    return std.fs.path.join(arena, &.{ zig_cache, "zypy", "python" });
 }
 
 fn matches(io: Io, cache: Io.Dir, archive: []const u8, sha256: []const u8) !bool {

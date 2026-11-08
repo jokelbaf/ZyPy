@@ -30,9 +30,12 @@ pub fn add(b: *std.Build, options: Options) *std.Build.Module {
         .target = options.target,
         .optimize = options.optimize,
     });
-    headers.addIncludePath(if (python.bundle) |root| root.path(b, "include/python" ++ bundle.version) else .{
+    const windows = options.target.result.os.tag == .windows;
+    headers.addIncludePath(if (python.bundle) |root| root.path(b, if (windows) "include" else "include/python" ++ bundle.version) else .{
         .cwd_relative = python.include_dir,
     });
+    // Free-threaded and default builds of Python share their headers on Windows.
+    if (windows and python.gil_disabled) headers.defineCMacro("Py_GIL_DISABLED", "1");
     const limited_api = if (options.abi3) |version| limitedApi(python, version) else null;
     if (limited_api) |hex| headers.defineCMacro("Py_LIMITED_API", b.fmt("0x{X:0>8}", .{hex}));
 

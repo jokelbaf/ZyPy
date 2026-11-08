@@ -66,7 +66,7 @@ class Interpreter:
     @property
     def abi_tag(self) -> str:
         """The wheel ABI tag, such as cp313, cp313t (free-threaded), or cp313d (debug)."""
-        if match := re.match(r"cpython-(\d+[a-z]*)-", self.soabi):
+        if match := re.match(r"(?:cpython-|cp)(\d+[a-z]*)-", self.soabi):
             return f"cp{match[1]}"
 
         return self.python_tag + ("t" if self.gil_disabled else "")

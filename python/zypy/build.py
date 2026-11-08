@@ -113,7 +113,7 @@ def _wheel_files(project: zypy.project.Project, installed: pathlib.Path) -> dict
     if (source := project.settings.python_source) is None:
         return files
 
-    for name, path in zypy.artifacts.files.walk(source):
+    for name, path in zypy.artifacts.files.walk(source, skip=zypy.editable.copies(project.root)):
         if name in files:
             raise zypy.errors.ZypyError(f"{source / name} has the same path in the wheel as a file zig build installs")
 

@@ -145,7 +145,13 @@ def _checkout_path(source: str, project: pathlib.Path) -> str:
     if not (checkout / "build.zig.zon").is_file() or not (checkout / "pyproject.toml").is_file():
         raise zypy.errors.ZypyError(f"{checkout} is not a ZyPy checkout")
 
-    return checkout.relative_to(project, walk_up=True).as_posix()
+    try:
+        return checkout.relative_to(project, walk_up=True).as_posix()
+    except ValueError:
+        raise zypy.errors.ZypyError(
+            f"ZyPy checkout {checkout} must be on the same drive as {project}: "
+            "create the project on that drive, or pass --zypy with a URL"
+        ) from None
 
 
 def _template_values(name: str, module: str, checkout: str | None) -> dict[str, str]:

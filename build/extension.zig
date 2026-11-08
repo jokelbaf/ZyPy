@@ -49,10 +49,17 @@ pub fn add(b: *std.Build, options: Options) *std.Build.Step.Compile {
 
     const short_name = if (std.mem.lastIndexOfScalar(u8, options.name, '.')) |dot| options.name[dot + 1 ..] else options.name;
     const lib = b.addLibrary(.{ .name = short_name, .linkage = .dynamic, .root_module = root });
-    // The Python that imports the extension provides the C API.
-    lib.linker_allow_shlib_undefined = true;
+    const windows = options.target.result.os.tag == .windows;
+    if (windows) {
+        // Windows DLLs can't have undefined symbols, so link the import library of Python's DLL.
+        root.addObjectFile(python.importLibrary(b, abi3 != null));
+    } else {
+        // The Python that imports the extension provides the C API.
+        lib.linker_allow_shlib_undefined = true;
+    }
 
-    const dest = b.fmt("{s}{s}", .{ options.name, if (abi3 != null) ".abi3.so" else python.ext_suffix });
+    const stable_suffix = if (windows) ".pyd" else ".abi3.so";
+    const dest = b.fmt("{s}{s}", .{ options.name, if (abi3 != null) stable_suffix else python.ext_suffix });
     std.mem.replaceScalar(u8, dest[0..options.name.len], '.', '/');
     const install = b.addInstallFileWithDir(lib.getEmittedBin(), .{ .custom = "python" }, dest);
     b.getInstallStep().dependOn(&install.step);

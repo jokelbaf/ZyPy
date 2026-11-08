@@ -57,6 +57,8 @@ ARCHITECTURES: typing.Final = {
 
 MACOS_ARCHITECTURES: typing.Final = {"arm64": "aarch64", "x86_64": "x86_64"}
 
+WINDOWS_ARCHITECTURES: typing.Final = {"win-amd64": "x86_64", "win-arm64": "aarch64", "win32": "x86"}
+
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Target:
@@ -77,8 +79,12 @@ class Target:
                 return cls._linux(python, rest, glibc)
             case "macosx":
                 return cls._macos(rest)
+            case "win" | "win32":
+                return cls._windows(python.platform)
             case _:
-                raise zypy.errors.ZypyError(f"ZyPy builds wheels only on Linux and macOS, not {python.platform}")
+                raise zypy.errors.ZypyError(
+                    f"ZyPy builds wheels only on Linux, macOS and Windows, not {python.platform}"
+                )
 
     @classmethod
     def _linux(cls, python: zypy.interpreter.Interpreter, name: str, glibc: GlibcVersion | None) -> typing.Self:
@@ -115,6 +121,14 @@ class Target:
 
         major, _ = max(_macos_version(os.environ.get("MACOSX_DEPLOYMENT_TARGET") or version), MINIMUM_MACOS)
         return cls(f"{zig_architecture}-macos.{major}.0", (f"macosx_{major}_0_{name}",))
+
+    @classmethod
+    def _windows(cls, platform: str) -> typing.Self:
+        """Get the Zig target and wheel tag for Windows."""
+        if (zig_architecture := WINDOWS_ARCHITECTURES.get(platform)) is None:
+            raise zypy.errors.ZypyError(f"ZyPy does not support Windows on {platform.removeprefix('win-')}")
+
+        return cls(f"{zig_architecture}-windows-gnu", (platform.replace("-", "_"),))
 
     @property
     def wheel_platform(self) -> str:

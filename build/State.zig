@@ -8,7 +8,7 @@ b: *std.Build,
 python: ?Python = null,
 abi3: ?(?[]const u8) = null,
 downloader: ?*std.Build.Step.Compile = null,
-installed_bundle: bool = false,
+installed_python: bool = false,
 bundled: std.ArrayList(Bundled) = .empty,
 
 /// A Python bundle for this CPU, operating system, and ABI.

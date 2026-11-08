@@ -17,7 +17,11 @@ const Platform = struct {
     triple: []const u8,
     sha256: []const u8,
     ext_suffix: []const u8,
+    /// DLLs to install beside the program on Windows.
+    dlls: []const []const u8 = &.{},
 };
+
+const windows_dlls: []const []const u8 = &.{ "python314.dll", "python3.dll", "vcruntime140.dll", "vcruntime140_1.dll" };
 
 const platforms = [_]Platform{
     .{ .arch = .x86_64, .os = .linux, .abi = .gnu, .triple = "x86_64-unknown-linux-gnu", .sha256 = "d8faa1b588506b9e3e5a3f57807bb056d534a1641a6b10d15b6ea3f0b413b960", .ext_suffix = ".cpython-314-x86_64-linux-gnu.so" },
@@ -30,6 +34,9 @@ const platforms = [_]Platform{
     .{ .arch = .aarch64, .os = .linux, .abi = .musl, .triple = "aarch64-unknown-linux-musl", .sha256 = "7b6714675192dc381e14de4f2615c73d8ce5c15775562f4843282c34c3df8b6c", .ext_suffix = ".cpython-314-aarch64-linux-musl.so" },
     .{ .arch = .x86_64, .os = .macos, .abi = .none, .triple = "x86_64-apple-darwin", .sha256 = "f0137337ecf6234b30c9c955219dae2d71e1a00387c4d204d6c6929e24bf9a90", .ext_suffix = ".cpython-314-darwin.so" },
     .{ .arch = .aarch64, .os = .macos, .abi = .none, .triple = "aarch64-apple-darwin", .sha256 = "994adadc202c5df0b4570192cc9a70e3f2c131e512f4a125c56efa8562f44b28", .ext_suffix = ".cpython-314-darwin.so" },
+    .{ .arch = .x86_64, .os = .windows, .abi = .gnu, .triple = "x86_64-pc-windows-msvc", .sha256 = "dce851f280b986764037bd952d40819e94ccceb08ac914004123f43ce17f4095", .ext_suffix = ".cp314-win_amd64.pyd", .dlls = windows_dlls },
+    .{ .arch = .aarch64, .os = .windows, .abi = .gnu, .triple = "aarch64-pc-windows-msvc", .sha256 = "9c0b221413b0353550bdbf8f0b7bba21c02c8a1199b39dd6af08f06cd6be6851", .ext_suffix = ".cp314-win_arm64.pyd", .dlls = windows_dlls },
+    .{ .arch = .x86, .os = .windows, .abi = .gnu, .triple = "i686-pc-windows-msvc", .sha256 = "91d627ad00e633fcd04d7fb867ee30afdf2c6f455704c293a035f752d0c4725c", .ext_suffix = ".cp314-win32.pyd", .dlls = windows_dlls[0..3] },
 };
 
 /// Get Python for `target` from python-build-standalone. Reuse the cached download when available.
@@ -56,7 +63,7 @@ pub fn python(b: *std.Build, target: std.Build.ResolvedTarget) Python {
         .include_dir = "",
         .ext_suffix = platform.ext_suffix,
         .lib_dir = "",
-        .lib_name = "python" ++ version,
+        .lib_name = if (result.os.tag == .windows) "python314" else "python" ++ version,
         .shared = true,
         .bundle = download.addOutputDirectoryArg("python"),
     };
@@ -69,9 +76,16 @@ pub fn python(b: *std.Build, target: std.Build.ResolvedTarget) Python {
     return bundled;
 }
 
+/// Get the DLLs to bundle on Windows, or an empty list on other systems.
+pub fn dlls(target: std.Target) []const []const u8 {
+    return if (platformOf(target)) |platform| platform.dlls else &.{};
+}
+
 fn platformOf(target: std.Target) ?Platform {
     for (platforms) |platform| {
-        if (platform.arch == target.cpu.arch and platform.os == target.os.tag and platform.abi == target.abi) return platform;
+        if (platform.arch != target.cpu.arch or platform.os != target.os.tag) continue;
+        // Python's DLL works with programs built for MinGW or MSVC.
+        if (platform.abi == target.abi or platform.os == .windows) return platform;
     }
     return null;
 }
@@ -88,7 +102,7 @@ fn unsupported(b: *std.Build, target: std.Target) noreturn {
 }
 
 fn triple(b: *std.Build, arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag, abi: std.Target.Abi) []const u8 {
-    if (abi == .none) return b.fmt("{t}-{t}", .{ arch, os });
+    if (abi == .none or os == .windows) return b.fmt("{t}-{t}", .{ arch, os });
     return b.fmt("{t}-{t}-{t}", .{ arch, os, abi });
 }
 
