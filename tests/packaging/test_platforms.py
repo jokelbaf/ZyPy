@@ -1,7 +1,6 @@
 import os
 import pathlib
 import platform
-import shutil
 import sys
 import sysconfig
 
@@ -36,10 +35,13 @@ import zypy.zig
         (helpers.fake_interpreter("linux-armv7l", libc="musl"), "arm-linux-musleabihf", ("musllinux_1_2_armv7l",)),
         (helpers.fake_interpreter("macosx-14.0-arm64", libc=""), "aarch64-macos.14.0", ("macosx_14_0_arm64",)),
         (helpers.fake_interpreter("macosx-10.13-x86_64", libc=""), "x86_64-macos.11.0", ("macosx_11_0_x86_64",)),
+        (helpers.fake_interpreter("win-amd64", libc=""), "x86_64-windows-gnu", ("win_amd64",)),
+        (helpers.fake_interpreter("win-arm64", libc=""), "aarch64-windows-gnu", ("win_arm64",)),
+        (helpers.fake_interpreter("win32", libc=""), "x86-windows-gnu", ("win32",)),
     ],
 )
 def test_targets(python: zypy.interpreter.Interpreter, zig: str, tags: tuple[str, ...]) -> None:
-    """Check Zig targets and compatibility baselines for manylinux, musl, and macOS."""
+    """Check Zig targets and compatibility baselines for manylinux, musl, macOS and Windows."""
     assert zypy.target.Target.of(python, zypy.target.GlibcVersion(2, 17)) == zypy.target.Target(zig, tags)
 
 
@@ -66,7 +68,8 @@ def test_macos_deployment_targets(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     ("python", "message"),
     [
-        (helpers.fake_interpreter("win-amd64"), "only on Linux and macOS"),
+        (helpers.fake_interpreter("freebsd-14.1-amd64", libc=""), "only on Linux, macOS and Windows"),
+        (helpers.fake_interpreter("win-ia64", libc=""), "does not support Windows on ia64"),
         (helpers.fake_interpreter("linux-sparc64"), "does not support sparc64"),
         (helpers.fake_interpreter(libc=""), "needs Linux with glibc or musl"),
         (helpers.fake_interpreter("macosx-14.0-ppc", libc=""), "does not support macOS on ppc"),
@@ -120,6 +123,14 @@ def test_unsupported_interpreters() -> None:
     assert free_threaded.abi_tag == "cp314t"
 
 
+def test_windows_abi_tags() -> None:
+    """Check Windows ABI tags for standard and free-threaded Python."""
+    assert helpers.fake_interpreter("win-amd64", soabi="cp313-win_amd64", libc="").abi_tag == "cp313"
+
+    free_threaded = helpers.fake_interpreter("win-arm64", soabi="cp314t-win_arm64", version=(3, 14), gil_disabled=True)
+    assert free_threaded.abi_tag == "cp314t"
+
+
 def test_describe_other_interpreters() -> None:
     """Check that an interpreter reports the same details when queried from another process."""
     assert zypy.interpreter.Interpreter.at(sys.executable) == zypy.interpreter.Interpreter.current()
@@ -131,7 +142,7 @@ def test_describe_other_interpreters() -> None:
 def test_zig_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     """Check error messages when Zig cannot run."""
     zypy.zig.command.cache_clear()
-    monkeypatch.setenv("ZYPY_ZIG", str(shutil.which("false")))
+    monkeypatch.setenv("ZYPY_ZIG", str(pathlib.Path(sys.executable).with_name("missing-zig")))
     try:
         with pytest.raises(zypy.errors.ZypyError, match="can't run Zig"):
             zypy.zig.command()
@@ -139,6 +150,7 @@ def test_zig_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
         zypy.zig.command.cache_clear()
 
 
+@helpers.requires_linux
 @pytest.mark.skipif(not os.environ.get("ZYPY_DOCKER_TESTS"), reason="set ZYPY_DOCKER_TESTS=1 to run tests in Docker")
 def test_musllinux_wheel(tmp_path: pathlib.Path) -> None:
     """Check musllinux tags and linking against Alpine Linux's system musl."""
@@ -148,7 +160,8 @@ def test_musllinux_wheel(tmp_path: pathlib.Path) -> None:
         "/tmp/venv/bin/python -m zypy build -o /tmp/dist && /tmp/venv/bin/pip install -q /tmp/dist/*.whl && "
         "ls /tmp/dist && /tmp/venv/bin/python -c 'import hello; print(hello.add(2, 3))'"
     )
-    docker = ["docker", "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp"]
+    owner = project.stat()
+    docker = ["docker", "run", "--rm", "--user", f"{owner.st_uid}:{owner.st_gid}", "-e", "HOME=/tmp"]
 
     out = helpers.run(*docker, "-v", f"{project.parent.parent}:/work", "python:3.13-alpine", "sh", "-c", script)
     assert out.splitlines() == [f"hello-0.1.0-cp313-cp313-musllinux_1_2_{helpers.ARCHITECTURE}.whl", "5"]

@@ -7,6 +7,8 @@ import typing
 
 import pytest
 
+import helpers
+
 STUB_LINES: typing.Final = (
     '"""ZyPy\'s test module"""',
     "import collections.abc\nimport enum\nimport typing\n\nfrom . import sub as sub\n",
@@ -163,7 +165,7 @@ def test_type_checkers_use_the_stubs(stubs: pathlib.Path, tmp_path: pathlib.Path
         f'project-includes = ["use.py", "{installed}"]\n'
     )
 
-    pyrefly = pathlib.Path(sys.executable).parent / "pyrefly"
+    pyrefly = pathlib.Path(sys.executable).parent / f"pyrefly{helpers.EXE}"
     result = subprocess.run([pyrefly, "check"], cwd=tmp_path, capture_output=True, text=True, check=False)
     errors = [line for line in result.stdout.splitlines() if line.startswith("ERROR")]
     overrides = [line.split("`")[1] for line in errors if line.endswith("[bad-override]")]

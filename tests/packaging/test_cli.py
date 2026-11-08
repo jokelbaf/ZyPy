@@ -34,7 +34,7 @@ def test_new_build_develop(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPat
     assert 'dev = ["zypy>=' in pyproject
 
     run_zypy("build", "--python", sys.executable, "--sdist", cwd=project)
-    wheel = project / "dist" / f"my_proj-0.1.0-{helpers.PYTHON_TAG}-{helpers.PYTHON_TAG}-{helpers.MANYLINUX_TAGS}.whl"
+    wheel = project / "dist" / f"my_proj-0.1.0-{helpers.PYTHON_TAG}-{helpers.PYTHON_TAG}-{helpers.PLATFORM_TAGS}.whl"
     assert wheel.is_file()
     assert (project / "dist" / "my_proj-0.1.0.tar.gz").is_file()
 
@@ -42,7 +42,7 @@ def test_new_build_develop(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPat
     run_zypy("develop", cwd=project)
 
     code = "import my_proj; print(my_proj.add(2, 3), my_proj.__file__)"
-    result, path = helpers.run(project / ".venv" / "bin" / "python", "-c", code).split()
+    result, path = helpers.run(helpers.venv_python(project / ".venv"), "-c", code).split()
     assert result == "5"
     assert path.startswith(str(project / "zig-out"))
 
@@ -73,7 +73,7 @@ def test_build_for_several_pythons(tmp_path: pathlib.Path) -> None:
 
     run_zypy("build", "-i", pythons[0], "-i", pythons[1], cwd=project)
     wheels = sorted(path.name for path in (project / "dist").glob("*.whl"))
-    assert wheels == [f"hello-0.1.0-{tag}-{tag}-{helpers.MANYLINUX_TAGS}.whl" for tag in ("cp313", "cp314")]
+    assert wheels == [f"hello-0.1.0-{tag}-{tag}-{helpers.PLATFORM_TAGS}.whl" for tag in ("cp313", "cp314")]
 
 
 def test_optimize_option() -> None:

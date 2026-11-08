@@ -51,16 +51,18 @@ def test_stable_abi_wheel(tmp_path: pathlib.Path) -> None:
 
     project = zypy.project.Project.load(root)
     wheel = zypy.build.build_wheel(project, tmp_path, zypy.interpreter.Interpreter.current())
-    assert wheel.name == f"hello-0.1.0-cp313-abi3-{helpers.MANYLINUX_TAGS}.whl"
+    assert wheel.name == f"hello-0.1.0-cp313-abi3-{helpers.PLATFORM_TAGS}.whl"
 
     with zipfile.ZipFile(wheel) as archive:
-        assert archive.namelist()[0] == "hello.abi3.so"
+        assert archive.namelist()[0] == f"hello{helpers.STABLE_ABI_SUFFIX}"
 
     venv = tmp_path / "venv"
     helpers.run("uv", "venv", "--python", "3.14+gil", venv)
-    helpers.run("uv", "pip", "install", "--python", venv / "bin" / "python", wheel)
+    helpers.run("uv", "pip", "install", "--python", helpers.venv_python(venv), wheel)
 
-    out = helpers.run(venv / "bin" / "python", "-c", "import sys, hello; print(sys.version_info[:2], hello.add(2, 3))")
+    out = helpers.run(
+        helpers.venv_python(venv), "-c", "import sys, hello; print(sys.version_info[:2], hello.add(2, 3))"
+    )
     assert out.strip() == "(3, 14) 5"
 
 

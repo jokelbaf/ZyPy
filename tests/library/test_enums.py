@@ -114,7 +114,7 @@ def test_enum_classes_with_many_members(tmp_path: pathlib.Path) -> None:
 
     prefix = tmp_path / "install"
     helpers.run(*zypy.zig.command(), "build", "--prefix", prefix, f"-Dpython={sys.executable}", cwd=project)
-    hello = load_extension(next((prefix / "python").glob("hello.*.so")))
+    hello = load_extension(next((prefix / "python").glob(f"hello.*{pathlib.Path(helpers.EXT_SUFFIX).suffix}")))
 
     members = list(hello.Wide)
     assert [(member.name, member.value) for member in members[:2]] == [("t0", 1533), ("t1", 1530)]

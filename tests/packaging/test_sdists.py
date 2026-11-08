@@ -171,7 +171,7 @@ def test_sdist_refuses_links_to_directories_in_dependencies(tmp_path: pathlib.Pa
     project = zypy.project.Project.load(root)
     assert sdist_contents(project, tmp_path)["demo-1.0/zig-deps/dep/src/alias.zig"] == b"// root"
 
-    (dep / "src" / "loop").symlink_to(".")
+    (dep / "src" / "loop").symlink_to(".", target_is_directory=True)
     with pytest.raises(zypy.errors.ZypyError, match=r"src/loop is a link to a directory, which sdists can't hold"):
         zypy.artifacts.sdist.build_sdist(project, tmp_path)
 

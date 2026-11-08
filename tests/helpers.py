@@ -11,6 +11,7 @@ import typing
 
 import pytest
 
+import zypy.cli
 import zypy.interpreter
 import zypy.zon
 
@@ -20,8 +21,13 @@ EXAMPLES: typing.Final = REPO / "examples"
 PYTHON_TAG: typing.Final = f"cp{sys.version_info.major}{sys.version_info.minor}"
 EXT_SUFFIX: typing.Final[str] = sysconfig.get_config_var("EXT_SUFFIX")
 ARCHITECTURE: typing.Final = platform.machine()
+WINDOWS: typing.Final = sys.platform == "win32"
 MANYLINUX_TAGS: typing.Final = f"manylinux_2_17_{ARCHITECTURE}.manylinux2014_{ARCHITECTURE}"
+PLATFORM_TAGS: typing.Final = sysconfig.get_platform().replace("-", "_") if WINDOWS else MANYLINUX_TAGS
+STABLE_ABI_SUFFIX: typing.Final = ".pyd" if WINDOWS else ".abi3.so"
+EXE: typing.Final = ".exe" if WINDOWS else ""
 FREE_THREADED: typing.Final = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+BASE_PYTHON: typing.Final[str] = vars(sys)["_base_executable"]
 
 ZYPY_FILES: typing.Final = (
     "build.zig",
@@ -33,13 +39,19 @@ ZYPY_FILES: typing.Final = (
     "README.md",
     "LICENSE",
 )
-BUILD_OUTPUTS: typing.Final = (".venv", ".zig-cache", "zig-out", "zig-pkg", "dist", "*.so", "__pycache__")
+BUILD_OUTPUTS: typing.Final = (".venv", ".zig-cache", "zig-out", "zig-pkg", "dist", "*.so", "*.pyd", "__pycache__")
 
 requires_uv: typing.Final = pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+requires_linux: typing.Final = pytest.mark.skipif(sys.platform != "linux", reason="checks Linux wheels")
 
 
 class Item:
     """An object that weak references can track."""
+
+
+def venv_python(venv: pathlib.Path) -> pathlib.Path:
+    """Get the Python executable in `venv`."""
+    return zypy.cli.venv_executable(venv)
 
 
 def run(*args: str | os.PathLike[str], cwd: pathlib.Path | None = None) -> str:

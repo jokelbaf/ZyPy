@@ -108,6 +108,7 @@ def test_entry_points_and_licenses(tmp_path: pathlib.Path) -> None:
     assert b"License-Expression: MIT" in files["METADATA"]
 
 
+@pytest.mark.skipif(helpers.WINDOWS, reason="Windows file names can't contain quotes or backslashes")
 def test_new_quotes_paths(tmp_path: pathlib.Path) -> None:
     """Check valid TOML and ZON output for checkout paths with quotes and backslashes."""
     checkout = tmp_path / 'zypy "checkout" \\ copy'
@@ -123,6 +124,23 @@ def test_new_quotes_paths(tmp_path: pathlib.Path) -> None:
 
     manifest = zypy.zon.Manifest.read(tmp_path / "demo" / "build.zig.zon")
     assert [string.value for string in manifest.path_dependencies] == [relative]
+
+
+def test_new_needs_a_checkout_on_the_same_drive(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Check the error when the ZyPy checkout is on another drive."""
+    relative_to = pathlib.Path.relative_to
+
+    def other_drive(path: pathlib.Path, other: pathlib.Path, *, walk_up: bool = False) -> pathlib.Path:
+        """Simulate a checkout on another drive."""
+        if path == helpers.REPO:
+            raise ValueError(f"{path!r} and {other!r} have different anchors")
+
+        return relative_to(path, other, walk_up=walk_up)
+
+    monkeypatch.setattr(pathlib.Path, "relative_to", other_drive)
+
+    with pytest.raises(zypy.errors.ZypyError, match="must be on the same drive"):
+        zypy.new.new_project(tmp_path / "demo", None, str(helpers.REPO))
 
 
 def test_new_uses_the_release(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:

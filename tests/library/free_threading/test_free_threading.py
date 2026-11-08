@@ -120,7 +120,7 @@ def test_zig_threads_without_gil(tmp_path: pathlib.Path) -> None:
     embed = helpers.REPO / "tests" / "embed"
     helpers.run(*zypy.zig.command(), "build", "--prefix", tmp_path, f"-Dpython={sys.executable}", cwd=embed)
 
-    command = [tmp_path / "bin" / "threads"]
+    command = [tmp_path / "bin" / f"threads{helpers.EXE}"]
     result = subprocess.run(command, env=without_python_gil(), capture_output=True, text=True, check=False)
 
     assert result.returncode == 0, result.stderr

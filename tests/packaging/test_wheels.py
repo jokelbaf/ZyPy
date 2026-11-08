@@ -60,7 +60,7 @@ def test_uv_build(tmp_path: pathlib.Path) -> None:
     project = helpers.copy_example("hello", tmp_path)
     helpers.run("uv", "build", "--python", sys.executable, "--out-dir", tmp_path / "dist", cwd=project)
 
-    wheel_name = f"hello-0.1.0-{helpers.PYTHON_TAG}-{helpers.PYTHON_TAG}-{helpers.MANYLINUX_TAGS}.whl"
+    wheel_name = f"hello-0.1.0-{helpers.PYTHON_TAG}-{helpers.PYTHON_TAG}-{helpers.PLATFORM_TAGS}.whl"
     assert sorted(path.name for path in (tmp_path / "dist").glob("[!.]*")) == [wheel_name, "hello-0.1.0.tar.gz"]
 
     with zipfile.ZipFile(tmp_path / "dist" / wheel_name) as wheel:
@@ -71,7 +71,8 @@ def test_uv_build(tmp_path: pathlib.Path) -> None:
         check_record(wheel)
 
         wheel_info = wheel.read("hello-0.1.0.dist-info/WHEEL").decode()
-        assert f"Tag: {helpers.PYTHON_TAG}-{helpers.PYTHON_TAG}-manylinux_2_17_{helpers.ARCHITECTURE}" in wheel_info
+        platform = helpers.PLATFORM_TAGS.split(".")[0]
+        assert f"Tag: {helpers.PYTHON_TAG}-{helpers.PYTHON_TAG}-{platform}" in wheel_info
 
     with tarfile.open(tmp_path / "dist" / "hello-0.1.0.tar.gz") as sdist:
         names = sdist.getnames()
@@ -86,13 +87,14 @@ def test_uv_build(tmp_path: pathlib.Path) -> None:
 
     venv = tmp_path / "venv"
     helpers.run("uv", "venv", "--python", sys.executable, venv)
-    helpers.run("uv", "pip", "install", "--python", venv / "bin" / "python", tmp_path / "dist" / wheel_name)
+    helpers.run("uv", "pip", "install", "--python", helpers.venv_python(venv), tmp_path / "dist" / wheel_name)
 
-    out = helpers.run(venv / "bin" / "python", "-c", "import hello; print(hello.add(2, 3), hello.greet('ZyPy'))")
+    out = helpers.run(helpers.venv_python(venv), "-c", "import hello; print(hello.add(2, 3), hello.greet('ZyPy'))")
     assert out.splitlines()[0] == "5 Hello, ZyPy!"
 
 
 @helpers.requires_uv
+@helpers.requires_linux
 def test_wheel_is_manylinux(tmp_path: pathlib.Path) -> None:
     """Check that auditwheel accepts wheels as manylinux_2_17."""
     project = zypy.project.Project.load(helpers.copy_example("hello", tmp_path))
@@ -102,6 +104,7 @@ def test_wheel_is_manylinux(tmp_path: pathlib.Path) -> None:
     assert f'consistent with the following platform tag:\n"manylinux_2_17_{helpers.ARCHITECTURE}"' in out
 
 
+@helpers.requires_linux
 def test_manylinux_off(tmp_path: pathlib.Path) -> None:
     """Check native platform tags when manylinux is disabled."""
     root = helpers.copy_example("hello", tmp_path)

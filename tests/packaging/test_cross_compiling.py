@@ -33,6 +33,15 @@ CPU_TYPES: typing.Final = {
     "aarch64-linux-musl": 183,
     "x86_64-macos.11.0": 0x01000007,
     "aarch64-macos.11.0": 0x0100000C,
+    "x86_64-windows-gnu": 0x8664,
+    "aarch64-windows-gnu": 0xAA64,
+    "x86-windows-gnu": 0x14C,
+}
+
+WINDOWS_SUFFIXES: typing.Final = {
+    "x86_64-windows-gnu": ".cp314-win_amd64.pyd",
+    "aarch64-windows-gnu": ".cp314-win_arm64.pyd",
+    "x86-windows-gnu": ".cp314-win32.pyd",
 }
 
 
@@ -57,9 +66,14 @@ def cross_compile(project: pathlib.Path, target: str, prefix: pathlib.Path) -> i
     """Cross-compile an extension for `target` and return its CPU type."""
     helpers.run(*zypy.zig.command(), "build", f"-Dtarget={target}", "--prefix", prefix, cwd=project)
 
-    data = next((prefix / "python").glob("*.so")).read_bytes()
+    data = next(path for path in (prefix / "python").iterdir() if path.suffix in {".so", ".pyd"}).read_bytes()
     if data.startswith(b"\xcf\xfa\xed\xfe"):
         return int.from_bytes(data[4:8], "little")
+
+    if data.startswith(b"MZ"):
+        header = int.from_bytes(data[0x3C:0x40], "little")
+        assert data[header : header + 4] == b"PE\0\0"
+        return int.from_bytes(data[header + 4 : header + 6], "little")
 
     assert data.startswith(b"\x7fELF")
     return int.from_bytes(data[18:20], "little" if data[5] == 1 else "big")
@@ -71,7 +85,19 @@ def test_cross_compiled_extensions(extension_project: pathlib.Path, tmp_path: pa
     assert cross_compile(extension_project, target, tmp_path / "out") == CPU_TYPES[target]
 
 
-@pytest.mark.parametrize("target", ["arm-linux-gnueabihf.2.17", "aarch64-macos.11.0"])
+@pytest.mark.parametrize("target", WINDOWS_SUFFIXES)
+def test_cross_compiled_windows_extensions(
+    extension_project: pathlib.Path, tmp_path: pathlib.Path, target: str
+) -> None:
+    """Check that Windows extensions are .pyd files that load Python's DLL and export their init function."""
+    cross_compile(extension_project, target, tmp_path)
+
+    data = (tmp_path / "python" / f"cross{WINDOWS_SUFFIXES[target]}").read_bytes()
+    assert b"python314.dll" in data
+    assert b"PyInit_cross" in data
+
+
+@pytest.mark.parametrize("target", ["arm-linux-gnueabihf.2.17", "aarch64-macos.11.0", "x86_64-windows-gnu"])
 def test_cross_compiled_library(library_project: pathlib.Path, tmp_path: pathlib.Path, target: str) -> None:
-    """Check that the full test extension builds for 32-bit ARM and macOS."""
+    """Check that the full test extension builds for 32-bit ARM, macOS and Windows."""
     assert cross_compile(library_project, target, tmp_path / "out") == CPU_TYPES[target]

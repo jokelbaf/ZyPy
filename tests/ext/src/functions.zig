@@ -112,8 +112,8 @@ pub fn moduleErrors(kind: u8) !void {
 }
 
 pub fn sleepMs(ms: u32) void {
-    const duration: std.os.linux.timespec = .{ .sec = @intCast(ms / 1000), .nsec = @intCast((ms % 1000) * std.time.ns_per_ms) };
-    _ = std.os.linux.nanosleep(&duration, null);
+    const io = std.Io.Threaded.global_single_threaded.io();
+    io.sleep(.fromMilliseconds(ms), .awake) catch {};
 }
 
 pub fn sleepAllowingThreads(ms: u32) void {
