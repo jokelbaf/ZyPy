@@ -20,13 +20,13 @@ const zypy = @import("zypy");
 
 ## Extensions
 
-`zypy.addExtension` builds the Zig file in `.root_source_file` and installs the extension under `python/`. Python supplies the file suffix, such as `.cpython-314-x86_64-linux-gnu.so`. A dotted name like `"mypkg._core"` puts the extension in `python/mypkg/`. The helper returns a compile step where you can add C sources, libraries, and include paths.
+`zypy.addExtension` builds the Zig file in `.root_source_file` and installs the extension under `python/`. Python supplies the file suffix, such as `.cpython-314-x86_64-linux-gnu.so` or `.cp314-win_amd64.pyd`. A dotted name like `"mypkg._core"` puts the extension in `python/mypkg/`. The helper returns a compile step where you can add C sources, libraries, and include paths.
 
 Use `.python` to choose an interpreter; the default is `zypy.findPython(b)`. Set `.abi3 = "3.13"` for the [stable ABI](/building/packaging/#the-stable-abi), or `.stubs = false` to skip [type stubs](/building/type-stubs/). `.strip` controls debug information and defaults to true outside debug mode.
 
 A `build.zig` can call `addExtension` several times, for example to build two extensions of one package. Each gets its own name and module.
 
-Do not link libpython into an extension. The interpreter that imports it already provides the C API.
+`addExtension` handles linking to Python on each platform. You don't need to call `zypy.linkPython` for extensions.
 
 ## Programs that embed Python
 
@@ -38,8 +38,8 @@ Do not link libpython into an extension. The interpreter that imports it already
 
 1. `-Dpython=<executable>` on the `zig build` command line;
 2. the active virtual environment, from `VIRTUAL_ENV`;
-3. `.venv/bin/python` in the project;
-4. `python3` on `PATH`.
+3. `.venv/bin/python` in the project, or `.venv\Scripts\python.exe` on Windows;
+4. `python3` on `PATH`, or `python` on Windows.
 
 The helper queries the interpreter and rejects anything other than CPython 3.13 or newer. The build backend passes `-Dpython` to select the interpreter running the build.
 

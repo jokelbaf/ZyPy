@@ -12,7 +12,7 @@ You can export functions and classes, work with Python objects and buffers, or e
 
 ## Requirements
 
-- Linux with glibc or musl, or macOS 11 or newer.
+- Linux with glibc or musl, macOS 11 or newer, or Windows 10 or newer.
 - CPython 3.13 or newer, including free-threaded builds.
 - Zig 0.17. Python build tools install it through the `ziglang` package if needed.
 

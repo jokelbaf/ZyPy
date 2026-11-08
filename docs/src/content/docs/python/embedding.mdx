@@ -86,9 +86,9 @@ sum: 45
 - `py.run` and `py.eval` run code in the namespace of `__main__`, as [Calling Python](/python/calling-python/#run-python-code) explains. Everything else on that page works here too.
 - `py.c.PyErr_Print()` prints the traceback of a Python exception that `main` didn't handle, as Python would. `py.c` is the CPython C API (see [The C API](/building/c-api/)).
 
-The build selects Python from `-Dpython`, the active virtual environment, the project's `.venv`, or `python3`, in that order. The interpreter must provide a shared libpython. uv-managed Python builds and most system installations provide one.
+The build selects Python from `-Dpython`, the active virtual environment, the project's `.venv`, or `python3` (`python` on Windows), in that order. The interpreter must provide a shared libpython. uv-managed Python builds and most system installations provide one.
 
-The executable uses the libpython location from the build machine. Other machines need a matching Python installation at that path. To distribute the interpreter too, [ship Python with the program](#ship-python-with-the-program).
+The program needs a matching Python installation at the same path used during the build. On Windows, `zypy.addExecutable` also copies Python's DLLs into `bin/` next to the program. To run on machines without that Python installation, [ship Python with the program](#ship-python-with-the-program).
 
 ## Interpreter settings
 
@@ -120,7 +120,7 @@ uv pip install pyproject-metadata
 zig build run
 ```
 
-`zig build` finds `.venv/bin/python` by itself. With `.executable` left out, Python only sees the packages of the Python installation itself.
+`zig build` finds the project's `.venv` automatically. With `.executable` left out, Python only sees the packages of the Python installation itself.
 
 ## Ship Python with the program
 
@@ -149,9 +149,11 @@ zig build -Dbundle-python=true
     - python3.14/ the standard library
 </FileTree>
 
-Copy the whole `zig-out` directory to distribute the program with Python, about 70 MB in this example. The executable locates libpython in `../lib`, and `py.Interpreter` locates the bundled standard library. With bundling enabled, `py.build_python` is `null` and `.executable` defaults to the program itself.
+On Windows, Python's DLLs go in `bin/`, with `Lib/` and `DLLs/` alongside it.
 
-`b.addRunArtifact` runs the executable from Zig's cache, away from its bundled Python libraries. For `zig build run`, use the installed executable so it can find those libraries in `../lib`:
+Copy the whole `zig-out` directory to distribute the program with Python. With bundling enabled, `py.build_python` is `null` and `.executable` defaults to the program itself.
+
+For `zig build run`, use the installed executable so it can find the bundled Python files:
 
 ```zig title="build.zig"
 const run = std.Build.Step.Run.create(b, "run embed");
@@ -169,7 +171,7 @@ A bundled Python also lets you build for other platforms, since the build doesn'
 zig build -Dbundle-python=true -Dtarget=aarch64-linux-gnu
 ```
 
-Bundled Python is available for `x86_64-linux-gnu`, `aarch64-linux-gnu`, `arm-linux-gnueabihf`, `powerpc64le-linux-gnu`, `riscv64-linux-gnu`, `s390x-linux-gnu`, `x86_64-linux-musl`, `aarch64-linux-musl`, `x86_64-macos`, and `aarch64-macos`. Unsupported targets produce a build error listing these options.
+Bundled Python is available for `x86_64-linux-gnu`, `aarch64-linux-gnu`, `arm-linux-gnueabihf`, `powerpc64le-linux-gnu`, `riscv64-linux-gnu`, `s390x-linux-gnu`, `x86_64-linux-musl`, `aarch64-linux-musl`, `x86_64-macos`, `aarch64-macos`, `x86_64-windows`, `aarch64-windows`, and `x86-windows`. Unsupported targets produce a build error listing these options.
 
 <Aside type="note">
 For a build setup of your own, `zypy.addModule` creates the `zypy` module and `zypy.linkPython` links libpython into a module. See [build.zig](/building/build-zig/#custom-setups).

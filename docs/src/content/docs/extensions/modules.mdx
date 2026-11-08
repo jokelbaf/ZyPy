@@ -187,7 +187,7 @@ def variance(xs: list[float]) -> float:
     return mean([(x - average) ** 2 for x in xs])
 ```
 
-Wheels place the Python files and extension in the same package directory. Editable installs link the extension and stub into `python/mixed/`; add those generated links to `.gitignore`. The `_core` name follows Python's convention for private modules.
+Wheels place the Python files and extension in the same package directory. Editable installs put the extension and stub in `python/mixed/`; add these generated files to `.gitignore`. See [Editable installs](/building/packaging/#editable-installs) for rebuilding on Windows. The `_core` name follows Python's convention for private modules.
 
 <Aside type="tip">
 The repository's [mixed example](https://github.com/jokelbaf/ZyPy/tree/master/examples/mixed) contains a complete version of this package.

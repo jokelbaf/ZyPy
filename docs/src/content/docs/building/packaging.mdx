@@ -44,7 +44,9 @@ Python built for musl, such as Python on Alpine Linux, builds `musllinux_1_2` wh
 
 macOS wheel tags name the minimum supported OS version, such as `macosx_11_0_arm64`. ZyPy uses at least macOS 11.0, or a newer version required by Python or `MACOSX_DEPLOYMENT_TARGET`. Each wheel targets one CPU architecture, even when built with universal2 Python.
 
-Windows isn't supported yet (see [Limitations](/reference/limitations/)).
+### Windows
+
+Windows wheels support Windows 10 or newer. Their tag matches the Python used to build them: `win_amd64` for x86_64, `win_arm64` for ARM64, or `win32` for 32-bit x86. You don't need Visual Studio.
 
 ## Several Python versions
 
@@ -95,7 +97,9 @@ A source distribution (sdist) contains the source files needed to build a wheel.
 
 `uv sync`, `pip install -e .`, and `zypy develop` create editable installs. Python loads the extension from `zig-out/python/`, so a rebuild updates the installed package. Restart Python to load the rebuilt extension. Editable builds use debug mode unless you select another mode with `-C optimize=fast` or `zypy develop --optimize`.
 
-With [`python-source`](/extensions/modules/#packages-that-mix-python-and-zig), ZyPy links the built extensions and stubs into the Python package directory instead. Each editable build removes the files that an earlier one installed and that the new one doesn't produce, so a renamed extension doesn't stay importable.
+With [`python-source`](/extensions/modules/#packages-that-mix-python-and-zig), ZyPy links the built extensions and stubs into the Python package directory instead. Rebuilding removes outdated generated files, including renamed extensions.
+
+On Windows, stop any Python process using the extension before rebuilding. If Windows doesn't allow symbolic links, ZyPy copies extensions and stubs into the Python package directory. Use `zypy develop` to rebuild and update these copies. Enable Developer Mode to allow symbolic links.
 
 ## The version
 
