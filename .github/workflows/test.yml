@@ -15,13 +15,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm]
         python: ["3.13", "3.14"]
         include:
           - { os: ubuntu-latest, python: "3.13", args: --ignore=tests/packaging/test_cross_compiling.py }
           - { os: ubuntu-24.04-arm, python: "3.13", args: --ignore=tests/packaging/test_cross_compiling.py }
+          - { os: windows-latest, python: "3.13", args: --ignore=tests/packaging/test_cross_compiling.py }
+          - { os: windows-11-arm, python: "3.13", args: --ignore=tests/packaging/test_cross_compiling.py }
           - { os: ubuntu-latest, python: 3.14t, tests: tests/library }
           - { os: ubuntu-24.04-arm, python: 3.14t, tests: tests/library }
+          - { os: windows-latest, python: 3.14t, tests: tests/library }
+          - { os: windows-11-arm, python: 3.14t, tests: tests/library }
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.2
@@ -29,7 +33,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - if: ${{ !matrix.tests }}
         run: uv python install 3.13 3.14
-      - run: uv run pytest --durations=10 ${{ matrix.tests }} ${{ matrix.args }}
+      - run: uv run pytest --durations=10 --basetemp=${{ runner.temp }}/pytest ${{ matrix.tests }} ${{ matrix.args }}
 
   musllinux:
     runs-on: ${{ matrix.os }}
