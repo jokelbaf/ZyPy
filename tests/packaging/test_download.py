@@ -9,36 +9,55 @@ import socket
 import subprocess
 import tarfile
 import threading
+import typing
 
 import pytest
 
 import helpers
 import zypy.zig
 
+HELLO: typing.Final = b"print('hello')\n"
 
-def archive() -> bytes:
-    """Create a small python-build-standalone archive for download tests."""
-    data = b"print('hello')\n"
-    info = tarfile.TarInfo("python/lib/hello.py")
-    info.size = len(data)
+LINKS: typing.Final = (
+    ("bin/python", "python3"),
+    ("bin/python3", "python3.14"),
+    ("bin/python3.14", b"python"),
+    ("share/terminfo/2/2621A", "../h/hp2621"),
+    ("share/terminfo/2/2621a", "../h/hp2621"),
+    ("share/terminfo/e/Eterm", b"upper"),
+    ("share/terminfo/e/eterm", b"lower"),
+    ("share/terminfo/h/hp2621", b"hp"),
+)
 
+
+def archive(entries: collections.abc.Sequence[tuple[str, bytes | str]] = (("lib/hello.py", HELLO),)) -> bytes:
+    """Create a small python-build-standalone archive of files (bytes) and links (str targets)."""
     buffer = io.BytesIO()
     with (
         gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0) as compressed,
         tarfile.open(fileobj=compressed, mode="w") as tar,
     ):
-        tar.addfile(info, io.BytesIO(data))
+        for name, content in entries:
+            info = tarfile.TarInfo(f"python/{name}")
+            if isinstance(content, str):
+                info.type = tarfile.SYMTYPE
+                info.linkname = content
+                tar.addfile(info)
+            else:
+                info.size = len(content)
+                tar.addfile(info, io.BytesIO(content))
 
     return buffer.getvalue()
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    """An HTTP handler serving /python.tar.gz and returning 403 for other paths."""
+    """An HTTP handler serving /python.tar.gz and /links.tar.gz, and returning 403 for other paths."""
 
     def do_GET(self) -> None:
         """Send the archive or an error page."""
-        found = self.path == "/python.tar.gz"
-        body = archive() if found else b"forbidden"
+        archives = {"/python.tar.gz": archive, "/links.tar.gz": lambda: archive(LINKS)}
+        found = self.path in archives
+        body = archives[self.path]() if found else b"forbidden"
 
         self.send_response(200 if found else 403)
         self.send_header("Content-Length", str(len(body)))
@@ -85,7 +104,7 @@ def test_downloads(downloader: pathlib.Path, server: str, tmp_path: pathlib.Path
     result = download(downloader, f"{server}/python.tar.gz", sha256, tmp_path)
 
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "output" / "lib" / "hello.py").read_text() == "print('hello')\n"
+    assert (tmp_path / "output" / "lib" / "hello.py").read_bytes() == HELLO
     assert cached_files(tmp_path) == [f"{sha256}.tar.gz"]
 
 
@@ -106,3 +125,26 @@ def test_failed_downloads_leave_no_files(downloader: pathlib.Path, server: str, 
     assert "doesn't have the SHA-256" in wrong.stderr
 
     assert cached_files(tmp_path) == []
+
+
+def test_downloads_with_links_and_names_differing_in_case(
+    downloader: pathlib.Path, server: str, tmp_path: pathlib.Path
+) -> None:
+    """Check unpacking links, and names that differ only in case on case-insensitive file systems like Windows'."""
+    sha256 = hashlib.sha256(archive(LINKS)).hexdigest()
+    result = download(downloader, f"{server}/links.tar.gz", sha256, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+    output = tmp_path / "output"
+    assert (output / "bin" / "python").read_bytes() == b"python"
+    assert (output / "bin" / "python3").read_bytes() == b"python"
+    assert (output / "share" / "terminfo" / "2" / "2621A").read_bytes() == b"hp"
+    assert (output / "share" / "terminfo" / "2" / "2621a").read_bytes() == b"hp"
+    assert (output / "share" / "terminfo" / "e" / "Eterm").read_bytes() == b"upper"
+    assert (output / "share" / "terminfo" / "e" / "eterm").read_bytes() in {b"upper", b"lower"}
+
+
+def test_links_fall_back_to_copies() -> None:
+    """Check that links that can't be created, as on Windows without Developer Mode, become copies."""
+    helpers.run(*zypy.zig.command(), "test", "build/download.zig", cwd=helpers.REPO)
