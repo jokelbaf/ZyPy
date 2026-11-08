@@ -8,6 +8,11 @@
 #define _Py_USE_GCC_BUILTIN_ATOMICS 1
 #endif
 
+// Free-threaded Python reads the thread ID with __getReg on ARM64 Windows, which MinGW's headers don't declare.
+#if defined(_WIN32) && defined(__aarch64__)
+unsigned long long __getReg(int);
+#endif
+
 #include <Python.h>
 
 // Wrap the initializer in a variable so translate-c can translate it.
