@@ -158,7 +158,7 @@ def test_type_stubs_are_valid_python(stubs: pathlib.Path) -> None:
 
 def test_type_checkers_use_the_stubs(stubs: pathlib.Path, tmp_path: pathlib.Path) -> None:
     """Check that pyrefly uses the generated stubs to type-check extension calls."""
-    installed = stubs.parent
+    installed = stubs.parent.as_posix()
     (tmp_path / "use.py").write_text(TYPED_USAGE)
     (tmp_path / "pyproject.toml").write_text(
         f'[tool.pyrefly]\npreset = "strict"\nsearch-path = ["{installed}"]\n'
@@ -170,6 +170,8 @@ def test_type_checkers_use_the_stubs(stubs: pathlib.Path, tmp_path: pathlib.Path
     errors = [line for line in result.stdout.splitlines() if line.startswith("ERROR")]
     overrides = [line.split("`")[1] for line in errors if line.endswith("[bad-override]")]
 
-    assert overrides == ["Positions.__getitem__", "Positions.__setitem__", "Labels.__getitem__"], result.stdout
+    assert overrides == ["Positions.__getitem__", "Positions.__setitem__", "Labels.__getitem__"], (
+        result.stdout + result.stderr
+    )
     assert len(errors) == 4, result.stdout
     assert "`Literal['one']` is not assignable to parameter `arg0` with type `int`" in errors[0]

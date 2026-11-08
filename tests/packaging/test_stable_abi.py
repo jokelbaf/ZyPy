@@ -80,4 +80,5 @@ def test_stable_abi_library(tmp_path: pathlib.Path) -> None:
 
     tests = [f"tests/library/{name}" for name in LIBRARY_TESTS]
     command = ["uv", "run", "--isolated", "--python", "3.14+gil", "pytest", "-q", "-p", "no:cacheprovider"]
-    helpers.run(*command, "--prebuilt-ext", installed, *tests, cwd=helpers.REPO)
+    basetemp = tmp_path / "pytest"
+    helpers.run(*command, f"--basetemp={basetemp}", "--prebuilt-ext", installed, *tests, cwd=helpers.REPO)

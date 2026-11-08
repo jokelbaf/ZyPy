@@ -14,11 +14,11 @@ DEFINITIONS: typing.Final = ROOT.with_name("definitions.zig")
 def test_compile_errors(tmp_path: pathlib.Path) -> None:
     """Check that misused APIs produce helpful compile errors."""
     project = helpers.copy_example("hello", tmp_path)
-    (project / "src" / "root.zig").write_text(ROOT.read_text())
-    (project / "src" / "definitions.zig").write_text(definitions_source())
+    (project / "src" / "root.zig").write_text(ROOT.read_text(encoding="utf-8"), encoding="utf-8")
+    (project / "src" / "definitions.zig").write_text(definitions_source(), encoding="utf-8")
 
     command = [*zypy.zig.command(), "build", f"-Dpython={sys.executable}"]
-    result = subprocess.run(command, cwd=project, capture_output=True, text=True, check=False)
+    result = subprocess.run(command, cwd=project, capture_output=True, encoding="utf-8", check=False)
     assert result.returncode != 0
 
     missing = [message for message in expected_messages() if message not in result.stderr]
@@ -36,7 +36,7 @@ def definitions_source() -> str:
         for index, (definition, _) in enumerate(library.compile_errors.cases.BAD_MODULES)
     ]
 
-    return "\n".join([DEFINITIONS.read_text(), *functions, *modules])
+    return "\n".join([DEFINITIONS.read_text(encoding="utf-8"), *functions, *modules])
 
 
 def own_module(name: str, definition: str) -> str:
